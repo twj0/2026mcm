@@ -1,3 +1,12 @@
+# Other
+*.swp
+*.swo
+*.swn
+examples/MathModelHub/
+examples/MCM-Latex-template/
+archive-contest/
+
+
 # Python-generated files
 __pycache__/
 *.py[oc]
@@ -8,4 +17,16 @@ wheels/
 
 # Virtual environments
 .venv
+
+
+# Python tooling caches
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
 
