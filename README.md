@@ -1,6 +1,4 @@
-# 2026 MCM/ICM Prep (Problem C)
-
-This repository is for preparing COMAP MCM/ICM 2026, focusing on **Problem C (data processing / statistical modeling)**.
+# Problem C
 
 ## Quickstart (Python)
 
