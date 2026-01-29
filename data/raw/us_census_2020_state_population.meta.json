@@ -1,0 +1,12 @@
+{
+  "source": "U.S. Census Bureau - Census Data API",
+  "dataset": "2020 Decennial Census: Redistricting Data (PL 94-171)",
+  "api_url": "https://api.census.gov/data/2020/dec/pl?get=NAME,P1_001N&for=state:*",
+  "fetched_at_utc": "2026-01-29T22:18:24+00:00",
+  "fields": {
+    "NAME": "State name",
+    "state": "State FIPS",
+    "P1_001N": "Total population"
+  },
+  "notes": "Use NAME to merge with celebrity_homestate when homecountry/region == United States."
+}
