@@ -452,6 +452,8 @@ def _simulate_one(
         df_active = df_active.sort_values("celebrity_name", kind="mergesort")
 
         k_elim = int(df_active["eliminated_this_week"].astype(bool).sum())
+        if k_elim >= len(df_active):
+            k_elim = max(int(len(df_active) - 1), 0)
         if k_elim <= 0:
             continue
 
@@ -495,7 +497,15 @@ def _simulate_one(
 
     if len(dff) == 0:
         # Fallback: deterministic name.
-        return sorted(list(active))[0] if active else ""
+        if active:
+            return sorted(list(active))[0]
+
+        dff_all = season_week_map[final_week]
+        dff_all = dff_all.loc[dff_all["active_flag"].astype(bool)].copy()
+        if len(dff_all) == 0:
+            return ""
+        dff_all = dff_all.sort_values(["judge_score_pct", "celebrity_name"], ascending=[False, True], kind="mergesort")
+        return str(dff_all["celebrity_name"].iloc[0])
 
     if len(dff) == 1:
         return str(dff["celebrity_name"].iloc[0])
