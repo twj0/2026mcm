@@ -30,6 +30,8 @@ def main() -> int:
     from mcm2026.pipelines.mcm2026c_q0_build_weekly_panel import run as run_q0
     from mcm2026.pipelines.mcm2026c_q1_smc_fan_vote import run as run_q1
     from mcm2026.pipelines.mcm2026c_q2_counterfactual_simulation import run as run_q2
+    from mcm2026.pipelines.mcm2026c_q3_mixed_effects_impacts import run as run_q3
+    from mcm2026.pipelines.mcm2026c_q4_design_space_eval import run as run_q4
 
     paths.ensure_dirs()
     paths.raw_data_dir().mkdir(parents=True, exist_ok=True)
@@ -68,6 +70,12 @@ def main() -> int:
 
     q2_out = run_q2()
     print(f"Wrote: {q2_out.mechanism_comparison_csv}")
+
+    q3_out = run_q3()
+    print(f"Wrote: {q3_out.impact_coeffs_csv}")
+
+    q4_out = run_q4()
+    print(f"Wrote: {q4_out.new_system_metrics_csv}")
     return 0
 
 
