@@ -1,0 +1,249 @@
+
+# 2026 MCM/ICM Problem C（DWTS）中文草稿（Markdown，无图片）
+
+> 说明：本草稿用于中文写作与结构对齐；图表将在后续 LaTeX 阶段插入。
+>
+> 本仓库所有主线结论均可由 `uv run python run_all.py` 复现生成，对应 CSV 产物位于 `outputs/`。
+
+## 摘要（面向评委/制作人的一页式要点）
+
+我们研究《Dancing with the Stars》(DWTS) 中“评委分 + 观众投票”合成淘汰机制下，如何在缺少真实投票数据的前提下：
+
+1. 反推出每周各选手的相对粉丝投票强度，并量化不确定性（Q1）。
+2. 在两种已知机制（Percent vs Rank）与“Judge Save”变体下进行反事实比较，解释争议赛季（Q2）。
+3. 分析选手特征与职业舞伴（pro dancer）对“技术线（评委分）”与“人气线（粉丝强度）”的影响差异（Q3）。
+4. 设计更稳健的新投票结合系统，通过多指标评价与压力测试给出可执行建议（Q4）。
+
+核心挑战是可辨识性（identifiability）：官方数据仅提供评委分与结果，不给投票数。因此我们主线输出的是**相对粉丝份额/指数及其区间**，而非绝对票数。我们采用基于赛制约束的贝叶斯/重要性采样框架，使推断与历史淘汰“概率一致”，并将不确定性向下游任务传播。
+
+最终我们给出：
+
+- `outputs/predictions/mcm2026c_q1_fan_vote_posterior_summary.csv`：Q1 每季每周每人的粉丝份额与指数（均值/分位数）。
+- `outputs/tables/mcm2026c_q2_mechanism_comparison.csv`：Q2 机制对比与 Judge Save 反事实指标。
+- `outputs/tables/mcm2026c_q3_impact_analysis_coeffs.csv`：Q3 混合效应模型的关键系数与不确定性。
+- `outputs/tables/mcm2026c_q4_new_system_metrics.csv`：Q4 新机制族在多指标与多档压力测试下的评价表。
+
+我们推荐制作方优先考虑“对粉丝份额做非线性压缩后再合成”的机制族（如 `percent_log`），并将压力测试结果作为节目风控工具：在极端动员情境下，新机制相较旧机制更能降低“低技术高票完全支配结果”的风险，同时保留观众参与感。
+
+---
+
+## 1. 问题重述与建模目标
+
+题目给定 DWTS 多赛季数据：每周评委打分（多名评委）、选手静态信息、以及最终结果/名次文本。题目要求在此基础上完成四项任务：
+
+- **Q1**：估计每周每位选手的粉丝投票强度（相对份额/指数）并量化不确定性。
+- **Q2**：比较 Rank 与 Percent 两类合成机制，进行反事实模拟，并分析争议案例与 Judge Save 变体。
+- **Q3**：分析 celebrity 特征与 pro dancer 影响，分别解释技术与人气两条线。
+- **Q4**：提出改进投票系统，量化其“更好”的维度，给出可执行建议。
+
+我们采用“传统主线 + 现代化加分点（仅附录）”的策略：主线以可解释、可复现的统计建模为核心；深度学习/自动化实验编排作为可选附录，不作为主线输入。
+
+---
+
+## 2. 数据与预处理（Q0）
+
+### 2.1 数据来源与数据政策
+
+- 官方数据：`mcm2026c/2026_MCM_Problem_C_Data.csv`。
+- 外生数据：本仓库包含 Google Trends/Wikipedia pageviews/州人口等文件，但**主线不依赖人气 proxy**（覆盖不足或可比性风险），仅将其作为审计记录或附录可能性。
+
+### 2.2 统一“真源表”
+
+我们将官方 wide 表整理为两张建模输入表：
+
+- 周级面板：`data/processed/dwts_weekly_panel.csv`
+  - 粒度：`season, week, celebrity_name`。
+  - 核心字段：`judge_score_total, judge_score_pct, judge_rank, active_flag, eliminated_this_week, withdrew_this_week` 等。
+- 赛季特征表：`data/processed/dwts_season_features.csv`
+  - 粒度：`season, celebrity_name`。
+  - 包含选手静态特征与舞伴信息，用于 Q3。
+
+### 2.3 质量控制与“结构性缺失”表述
+
+我们对处理后的面板做一致性审计，确保核心建模字段（评委分/份额/排名等）可用；缺失主要集中在“文本不可解析、淘汰后周次不再评分”等结构性字段。相关 sanity check 表位于：
+
+- `outputs/tables/mcm2026c_q0_sanity_season_week.csv`
+- `outputs/tables/mcm2026c_q0_sanity_contestant.csv`
+
+---
+
+## 3. Q1：反推粉丝投票强度（Fan Vote Estimation）
+
+### 3.1 可辨识性与输出形式
+
+由于真实投票数不可观测，本题可稳定识别的是：在给定赛制与评委分的前提下，能够解释历史淘汰结果的**相对粉丝强度**。
+
+我们输出两种量：
+
+- `fan_share`：当周粉丝投票份额（simplex 上，和为 1）。
+- `fan_vote_index`：对份额做 logit 变换得到的指数（便于跨周比较），并提供区间。
+
+### 3.2 机制建模：Percent vs Rank
+
+对于每个赛季-周，设当周仍在赛选手集合为 `A`。
+
+- Percent（份额相加）：
+  - 已知评委份额 `pJ_i`，未知粉丝份额 `pF_i`。
+  - 合成得分 `T_i = α·pJ_i + (1-α)·pF_i`。
+- Rank（名次相加）：
+  - 已知评委名次 `rJ_i`。
+  - 我们用 `pF` 的排序近似粉丝名次 `rF_i`（KISS 做法）。
+  - 合成名次 `S_i = α·rJ_i + (1-α)·rF_i`。
+
+其中 `α` 为评委权重。
+
+### 3.3 软约束似然与重要性采样/重采样
+
+硬约束“最低者必淘汰”在现实中可能被制作安排、噪声等扰动。我们采用温度参数 `τ` 将淘汰规则转为概率（soft constraint）：
+
+- Percent：`Pr(eliminate=i) = softmax(-T_i/τ)`
+- Rank：`Pr(eliminate=i) = softmax(S_i/τ)`
+
+对每周从 Dirichlet 先验采样 `pF`，计算观测淘汰集合的似然权重，进行重要性重采样，得到 `pF` 的后验样本，并汇总均值/中位数/5%-95% 分位数。
+
+主要配置位于：`src/mcm2026/config/config.yaml`（主线默认 `α=0.5, τ=0.03`）。
+
+### 3.4 产物与验证
+
+- 后验汇总（主输出）：
+  - `outputs/predictions/mcm2026c_q1_fan_vote_posterior_summary.csv`
+- 不确定性汇总（每周 ESS/证据等）：
+  - `outputs/tables/mcm2026c_q1_uncertainty_summary.csv`
+
+我们使用 ESS、证据（平均似然）等量作为“可辨识性/信息量”指标，并在后续问题（Q3/Q4）中通过抽样传播不确定性。
+
+---
+
+## 4. Q2：机制对比与反事实（Rank vs Percent + Judge Save）
+
+### 4.1 反事实框架
+
+Q2 以 Q1 的后验样本为输入：对每个赛季重复模拟整季淘汰过程，分别在不同机制下统计冠军/淘汰路径的概率差异。由于输入是分布，我们输出的是概率型结论而非确定性断言。
+
+### 4.2 Judge Save 变体
+
+Judge Save 的最小可执行定义：当周先确定 bottom-2，再由评委淘汰评委分更低者（等价于“在 bottom-2 内做技术纠偏”）。
+
+### 4.3 产物
+
+- 赛季级机制对比表：
+  - `outputs/tables/mcm2026c_q2_mechanism_comparison.csv`
+
+表中包含机制差异的汇总指标，用于支撑“哪种机制更偏向粉丝/更保护技术”的讨论。
+
+---
+
+## 5. Q3：特征影响分析（Celebrities + Pro Dancers）
+
+### 5.1 两条因变量：技术线 vs 人气线
+
+为避免将“技术”和“人气”混为一个黑盒，我们分别建模：
+
+- 技术线：基于 `judge_score_pct` 聚合得到的赛季级表现。
+- 人气线：基于 Q1 的 `fan_vote_index` 聚合得到的赛季级人气强度（并传播不确定性）。
+
+### 5.2 混合效应模型与层级结构
+
+pro dancer 会跨季重复出现，属于典型层级结构。我们使用混合效应（Mixed Effects）建模 pro 的随机效应，并同时吸收赛季差异。
+
+### 5.3 不确定性传播
+
+粉丝线因变量来自 Q1 后验，因此我们用“后验重复拟合”的方式得到系数区间：从 Q1 的区间构造近似噪声，对同一模型重复拟合并汇总。
+
+### 5.4 产物
+
+- 系数与区间表：
+  - `outputs/tables/mcm2026c_q3_impact_analysis_coeffs.csv`
+
+该表用于在论文中解释：哪些特征更影响技术线、哪些更影响人气线，以及 pro dancer 的平均加成方向。
+
+---
+
+## 6. Q4：新系统设计与多指标评估（Mechanism Design）
+
+### 6.1 设计目标
+
+我们将“更好”的目标分解为可量化维度：
+
+- **技术保护**：技术强者不应被断层人气轻易淘汰。
+- **粉丝表达**：观众投票必须对结果有实质影响。
+- **鲁棒性**：面对极端动员/断层票，应尽量避免系统性失真。
+- **可执行与可解释**：规则简单、参数可调、便于对观众说明。
+
+### 6.2 机制候选
+
+在保留“评委 + 粉丝”两端信息的前提下，我们评估以下可落地机制族（示例）：
+
+- `percent`：基线。
+- `rank`：基线。
+- `percent_judge_save`：制度化纠偏。
+- `percent_sqrt` / `percent_log`：对粉丝份额做非线性压缩后再归一化合成。
+- `percent_cap`：对粉丝份额做封顶（winsorize/cap）。
+- `dynamic_weight`：随周数逐渐提高评委权重。
+
+### 6.3 关键建模假设与“现实对齐”边界
+
+本模块评估机制的范围是**Q1 可识别的粉丝强度空间**：
+
+- 我们并不声称“预测现实冠军”，而是评估：在给定（可由淘汰约束识别的）粉丝强度不确定性下，不同机制在多目标上的 trade-off。
+- 对极端动员型案例（如 S27 Bobby Bones），Q1 可能低估其真实投票动员强度；因此我们在 Q4 通过压力测试显式讨论此类情景。
+
+### 6.4 指标体系（实现口径）
+
+Q4 输出表以赛季-机制为单位，关键指标包括：
+
+- `tpi_season_avg`：技术保护指数（冠军的赛季平均评委分位数），避免只看决赛周造成的小样本问题。
+- `fan_vs_uniform_contrast`：受控对照指标（真实粉丝分布 vs 均匀粉丝分布）下冠军是否改变的频率，用于衡量“粉丝端信息是否实质影响结果”。
+- `robust_fail_rate`：压力测试下“技术 top-1 被非 top-1 冠军替代”的频率。
+- `champion_mode_prob`、`champion_entropy`：稳定性/不确定性（冠军分布是否过度随机）。
+
+### 6.5 多档压力测试与争议赛季复盘
+
+我们对“极端动员”设置多档 outlier 倍数（2×/5×/10×）进行 stress test。输出表可直接用于定位类似 Bobby Bones 的赛季：
+
+- 产物：`outputs/tables/mcm2026c_q4_new_system_metrics.csv`
+- 示例：在 `season=27, mechanism=percent_log, outlier_mult=10` 场景下，Bobby Bones 出现为冠军众数且具有非零概率，这支持我们将其作为“识别边界 + 压力测试可覆盖”的叙事，而非模型完全失败。
+
+---
+
+## 7. 讨论：局限性与稳健性
+
+1. **可辨识性限制**：仅凭评委分与淘汰结果，我们只能识别“与历史淘汰兼容的相对粉丝强度”，无法恢复绝对票数，也可能低估外部动员型极端案例。
+2. **赛制细节不完全可得**：无淘汰/双淘汰/退赛等事件我们以可复现规则落点处理；论文中需明确这是最小主观性处理。
+3. **外生人气 proxy 主线弃用**：为保证可比性与合规性，主线不引入 Trends/Pageviews；这会牺牲对少量“外部流量驱动”赛季的解释能力，但可通过压力测试与附录补充讨论。
+4. **参数敏感性**：`α` 与 `τ` 影响 Q1–Q4 的推断强度与“意外淘汰”容忍度；主线使用默认值并建议在附录做敏感性分析。
+
+---
+
+## 8. 复现指南（写进论文附录/README 的版本）
+
+### 8.1 环境
+
+- Python 3.11
+- 包管理：`uv`
+
+### 8.2 一键复现
+
+```bash
+uv sync
+uv run python run_all.py
+```
+
+运行后会生成（或覆盖）`data/processed/` 与 `outputs/` 下的主线 CSV 产物。
+
+### 8.3 主线结果表索引
+
+- Q1：`outputs/predictions/mcm2026c_q1_fan_vote_posterior_summary.csv`
+- Q1 不确定性：`outputs/tables/mcm2026c_q1_uncertainty_summary.csv`
+- Q2：`outputs/tables/mcm2026c_q2_mechanism_comparison.csv`
+- Q3：`outputs/tables/mcm2026c_q3_impact_analysis_coeffs.csv`
+- Q4：`outputs/tables/mcm2026c_q4_new_system_metrics.csv`
+
+---
+
+## 9. 参考链接（写作时择 2–3 个引用即可）
+
+- ABC（投票合成说明）：https://abc.com/news/04b80298-dc11-47c0-9f91-adc58c4440b9/category/1074633
+- Entertainment Weekly（2025，制作人解释合成方式）：https://ew.com/dwts-producer-reveals-how-scores-and-votes-are-calculated-11857082
+- E! Online（2025，50/50 叙事）：https://www.eonline.com/news/1423264/dancing-with-the-stars-eliminations-scores-and-votes-explained
+- TVLine（Judge Save 解释）：https://www.tvline.com/news/dancing-with-the-stars-judges-save-eliminated-rule-change-explained-1235168027/
