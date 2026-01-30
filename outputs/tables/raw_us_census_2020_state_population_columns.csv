@@ -1,0 +1,4 @@
+column,missing_ratio,dtype
+NAME,0.0,str
+P1_001N,0.0,int64
+state,0.0,int64

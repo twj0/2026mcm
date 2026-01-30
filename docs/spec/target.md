@@ -18,7 +18,21 @@ description: 目标
 
 - Any figure/table used in the paper must be reproducible by running `run_all.py`.
 - Outputs must be written to `outputs/` (generated artifacts should not be edited by hand).
-- Respect the problem statement data policy (external data only if explicitly allowed).
+- Respect the problem statement data policy (external data is allowed but must be fully documented).
+
+## Data Policy (DWTS)
+
+- The problem statement permits adding additional information/data, but all sources must be documented.
+- External data is treated as **optional** signals for priors/features/explanations, not a replacement for rule-based constraints.
+- External datasets may be present in `data/raw/`, but they are **not required** for the main solution.
+- Audit conclusion (current repository state):
+  - `data/raw/dwts_google_trends.csv` is excluded from main analysis (coverage limited to seasons 1–20; unstable; values not reliably comparable across contestants).
+  - `data/raw/dwts_wikipedia_pageviews.csv` is excluded from main analysis (currently only covers season 27; insufficient for cross-season analysis).
+
+## Modeling Constraints (DWTS)
+
+- Do not claim absolute vote totals; outputs should be fan vote **share/index** with uncertainty.
+- Avoid decision-time leakage: when modeling a week `t`, do not use information that would only be known after week `t` (unless explicitly flagged as post-hoc analysis).
 
 ## Showtime (Optional)
 

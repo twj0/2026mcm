@@ -1,0 +1,15 @@
+{
+  "source": "Google Trends (pytrends, unofficial)",
+  "input_csv": "D:\\MathematicalModeling\\2026mcm\\mcm2026c\\2026_MCM_Problem_C_Data.csv",
+  "fetched_at_utc": "2026-01-30T00:26:48+00:00",
+  "notes": [
+    "This is a comparison-only proxy. It is not guaranteed stable due to Google throttling.",
+    "Windows are aligned using Wikipedia season pages (first_aired/last_aired) with a buffer.",
+    "Keyword ambiguity is expected (same-name people)."
+  ],
+  "defaults": {
+    "buffer_days": 7,
+    "geo": "US",
+    "max_queries": 200
+  }
+}

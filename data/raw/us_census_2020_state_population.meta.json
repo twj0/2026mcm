@@ -2,7 +2,7 @@
   "source": "U.S. Census Bureau - Census Data API",
   "dataset": "2020 Decennial Census: Redistricting Data (PL 94-171)",
   "api_url": "https://api.census.gov/data/2020/dec/pl?get=NAME,P1_001N&for=state:*",
-  "fetched_at_utc": "2026-01-29T22:18:24+00:00",
+  "fetched_at_utc": "2026-01-29T23:56:53+00:00",
   "fields": {
     "NAME": "State name",
     "state": "State FIPS",

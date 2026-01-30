@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# Ref: docs/spec/task.md
+# Ref: docs/spec/architecture.md
+
 import sys
 from pathlib import Path
 
@@ -24,14 +27,16 @@ def main() -> int:
 
     from mcm2026.core import paths
     from mcm2026.data import audit, io
+    from mcm2026.pipelines.mcm2026c_q0_build_weekly_panel import run as run_q0
+    from mcm2026.pipelines.mcm2026c_q1_smc_fan_vote import run as run_q1
+    from mcm2026.pipelines.mcm2026c_q2_counterfactual_simulation import run as run_q2
 
     paths.ensure_dirs()
     paths.raw_data_dir().mkdir(parents=True, exist_ok=True)
 
     raw_files = _list_raw_files(paths.raw_data_dir())
     if not raw_files:
-        print("Repo ready. Put attachments under data/raw/ (csv/tsv/xlsx), then rerun run_all.py.")
-        return 0
+        print("No files found under data/raw/. Continuing with official DWTS preprocessing.")
 
     summary_rows: list[dict] = []
     for fp in raw_files:
@@ -50,7 +55,19 @@ def main() -> int:
     summary = pd.DataFrame(summary_rows)
     io.write_csv(summary, paths.tables_dir() / "raw_audit_summary.csv")
 
-    print(f"Audited {len(raw_files)} raw file(s). See outputs/tables/raw_audit_summary.csv")
+    if raw_files:
+        print(f"Audited {len(raw_files)} raw file(s). See outputs/tables/raw_audit_summary.csv")
+
+    q0_out = run_q0()
+    print(f"Built processed dataset: {q0_out.weekly_panel_csv}")
+    print(f"Built processed dataset: {q0_out.season_features_csv}")
+
+    q1_out = run_q1()
+    print(f"Wrote: {q1_out.posterior_summary_csv}")
+    print(f"Wrote: {q1_out.uncertainty_summary_csv}")
+
+    q2_out = run_q2()
+    print(f"Wrote: {q2_out.mechanism_comparison_csv}")
     return 0
 
 

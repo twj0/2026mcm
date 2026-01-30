@@ -1,0 +1,14 @@
+column,missing_ratio,dtype
+api_end,0.0,str
+api_start,0.0,str
+celebrity_name,0.0,str
+pageviews_days,0.0,int64
+pageviews_max,0.0,int64
+pageviews_mean,0.0,float64
+pageviews_status,0.0,str
+pageviews_sum,0.0,int64
+season,0.0,int64
+season_wikipedia_page,0.0,str
+wikipedia_article,0.0,str
+window_end,0.0,str
+window_start,0.0,str

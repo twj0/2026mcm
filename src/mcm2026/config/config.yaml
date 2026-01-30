@@ -1,0 +1,94 @@
+
+# MCM 2026 Problem C - Dancing with the Stars 建模配置文件
+# Configuration for DWTS Fan Vote Estimation and Analysis
+# 配置文件版本: 1.0
+# 最后更新: 2026-01-30-12:03
+
+dwts:
+  # =============================================================================
+  # Q1: 粉丝投票估计 (Fan Vote Estimation)
+  # 使用贝叶斯推断估计每周每位选手的粉丝投票份额
+  # =============================================================================
+  q1:
+    # 权重平衡参数 (Weight Balance Parameter)
+    # alpha ∈ (0,1): 评委分数在合并分数中的权重
+    # 物理意义: 
+    #   - alpha=0.5: 评委和粉丝各占50%权重 (符合DWTS现实假设)
+    #   - alpha→1.0: 更偏向评委分数 (技术导向)
+    #   - alpha→0.0: 更偏向粉丝投票 (人气导向)
+    # 推荐范围: [0.3, 0.7] (用于敏感性分析)
+    # 当前设置: 0.5 (平衡假设，与现实DWTS系统一致)
+    alpha: 0.5
+    
+    # 温度参数 (Temperature Parameter)  
+    # tau > 0: 控制淘汰规则的"软硬程度"
+    # 物理意义:
+    #   - tau→0: 接近确定性淘汰 (硬约束，最低分必被淘汰)
+    #   - tau→∞: 接近随机淘汰 (完全软约束，任何人都可能被淘汰)
+    #   - 适中值: 允许少量"意外"淘汰，符合现实情况
+    # 推荐范围: [0.01, 0.1]
+    # 当前设置: 0.03 (较强确定性，但允许Bobby Bones类型的"意外"获胜)
+    tau: 0.03
+    
+    # 先验抽样数量 (Prior Sample Size)
+    # m > 0: 从Dirichlet先验分布抽取的样本数量
+    # 影响因素:
+    #   - 更大的m → 更精确的后验估计，但计算时间更长
+    #   - 更小的m → 计算更快，但统计精度降低
+    # 推荐范围: [1000, 5000]
+    # 当前设置: 2000 (平衡精度与计算效率)
+    # 注意: 如果有效样本量(ESS)过低(<100)，建议增加此值
+    prior_draws_m: 2000
+    
+    # 后验重采样数量 (Posterior Resample Size)
+    # r > 0: 重要性采样后的重采样数量，用于计算最终统计量
+    # 设计原则:
+    #   - 通常设为 r ≈ m/4 到 m/2
+    #   - 足够计算稳定的分位数 (p05, p95)
+    #   - 不宜过大，避免过度重采样
+    # 推荐范围: [200, 1000]  
+    # 当前设置: 500 (足够的统计精度，r/m=25%)
+    posterior_resample_r: 500
+
+# =============================================================================
+# 未来扩展配置节点 (Future Extension Nodes)
+# =============================================================================
+
+# dwts:
+#   q2:  # 机制对比与争议案例分析 (Mechanism Comparison & Controversy Analysis)
+#     # counterfactual_simulations: 1000
+#     # controversy_cases: ["Jerry Rice", "Bobby Bones", "Bristol Palin"]
+#     # judge_save_enabled: true
+#   
+#   q3:  # 选手特征影响分析 (Celebrity Feature Impact Analysis)  
+#     # feature_categories: ["age", "industry", "homestate", "pro_partner"]
+#     # regression_method: "mixed_effects"
+#     # cross_validation_folds: 5
+#   
+#   q4:  # 新投票系统设计 (New Voting System Design)
+#     # fairness_metrics: ["technical_protection", "fan_satisfaction"]
+#     # pareto_optimization: true
+#     # simulation_seasons: 10
+
+# =============================================================================
+# 配置使用说明 (Configuration Usage Notes)
+# =============================================================================
+
+# 1. 参数调优建议:
+#    - 首次运行使用默认值
+#    - 根据ESS比率调整prior_draws_m (目标ESS比率 > 0.1)
+#    - 根据争议案例拟合效果调整tau
+#    - 根据现实假设验证调整alpha
+
+# 2. 敏感性分析:
+#    - alpha: [0.3, 0.4, 0.5, 0.6, 0.7]
+#    - tau: [0.01, 0.02, 0.03, 0.05, 0.1]
+
+# 3. 计算资源考虑:
+#    - 内存使用 ≈ prior_draws_m × n_active × 8 bytes
+#    - 计算时间 ∝ prior_draws_m × n_weeks × n_seasons
+#    - 建议在高性能机器上运行完整分析
+
+# 4. 输出文件说明:
+#    - predictions/mcm2026c_q1_fan_vote_posterior_summary.csv: 后验统计摘要
+#    - outputs/tables/mcm2026c_q1_uncertainty_summary.csv: 不确定性量化结果

@@ -5,7 +5,7 @@
 **2026 MCM**
 **问题 C：星光数据 (Data With The Stars)**
 
-![迪斯科舞会球图片](https://replicate.delivery/pbxt/JR7Gf7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7f7/disco_ball.jpg)
+![迪斯科舞会球图片]
 
 《与星共舞》（Dancing with the Stars，简称 DWTS）是根据英国节目《舞动奇迹》（Strictly Come Dancing，原名 Come Dancing）改编的国际电视系列节目的美国版。该节目的各种版本已在阿尔巴尼亚、阿根廷、澳大利亚、中国、法国、印度等许多国家出现。本问题的焦点——美国版，目前已完成 34 个赛季。
 

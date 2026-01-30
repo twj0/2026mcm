@@ -1,0 +1,12 @@
+column,missing_ratio,dtype
+trends_max,0.13215859030837004,float64
+trends_mean,0.13215859030837004,float64
+trends_sum,0.13215859030837004,float64
+celebrity_name,0.0,str
+geo,0.0,str
+n_points,0.0,int64
+season,0.0,int64
+season_wikipedia_page,0.0,str
+trends_status,0.0,str
+window_end,0.0,str
+window_start,0.0,str

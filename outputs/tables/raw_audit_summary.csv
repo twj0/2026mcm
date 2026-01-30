@@ -1,0 +1,4 @@
+file,n_rows,n_cols,n_missing,missing_ratio
+dwts_google_trends.csv,227,11,90,0.03604325190228274
+dwts_wikipedia_pageviews.csv,13,13,0,0.0
+us_census_2020_state_population.csv,52,3,0,0.0

@@ -7,13 +7,17 @@ import pandas as pd
 
 def read_table(path: Path) -> pd.DataFrame:
     suffix = path.suffix.lower()
+
     if suffix == ".csv":
-        return pd.read_csv(path)
-    if suffix in {".tsv", ".txt"}:
-        return pd.read_csv(path, sep="\t")
+        return pd.read_csv(path, na_values=["N/A"], keep_default_na=True)
+    if suffix == ".tsv":
+        return pd.read_csv(path, sep="\t", na_values=["N/A"], keep_default_na=True)
+    if suffix in {".txt"}:
+        return pd.read_csv(path, sep=None, engine="python", na_values=["N/A"], keep_default_na=True)
     if suffix in {".xlsx", ".xls"}:
         return pd.read_excel(path)
-    raise ValueError(f"Unsupported file type: {path.name}")
+
+    raise ValueError(f"Unsupported file type: {suffix}")
 
 
 def write_csv(df: pd.DataFrame, path: Path) -> None:
