@@ -1,6 +1,4 @@
-# 2026 MCM/ICM Prep (Problem C)
-
-This repository is for preparing COMAP MCM/ICM 2026, focusing on **Problem C (data processing / statistical modeling)**.
+# Problem C
 
 ## Quickstart (Python)
 
@@ -40,6 +38,7 @@ This is the working Chinese draft (no images). Figures will be inserted later du
   - `src/mcm2026/data/`: data IO + auditing
   - `src/mcm2026/pipelines/`: reproducible mainline pipelines (Q0–Q4)
   - `src/mcm2026/pipelines/showcase/`: appendix-only “showcase” pipelines (do not change mainline artifacts)
+
 - `outputs/`: generated figures/tables/predictions for the paper
 - `paper/`: LaTeX paper (template from `examples/MCM-Latex-template`)
 
