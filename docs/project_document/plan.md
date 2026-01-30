@@ -9,20 +9,20 @@
 
 这在 MCM 场景下是完全可接受的：题目要求“estimate / analyze / propose”，并未要求还原绝对票数。我们会在文中把“粉丝票估计”明确表述为**比例/指数 + 区间**，并用稳健性验证支撑可信度。
 
-外生数据（Wikipedia pageviews、州人口、可选 Google Trends）不是“解题必需”，但可以：
-- 提供更有说服力的先验（让反推解更集中）；
-- 帮助第三题归因（把“人气”拆成可解释的部分）。
+外生数据不是“解题必需”。在当前仓库审计结论下：
+- `dwts_google_trends.csv` 与 `dwts_wikipedia_pageviews.csv` 主线弃用（覆盖/可比性不足），仅作为附录的失败尝试记录。
+- `us_census_2020_state_population.csv` 可作为稳定可复现的参考变量（可选），但不作为 Q1 反推的决定性输入。
 
 ## 1. 数据与工程落地（必须先做）
 
 ### 1.1 原始数据
 
 - 官方数据：`mcm2026c/2026_MCM_Problem_C_Data.csv`
-- 外生数据（已抓取）：
-  - Wikipedia pageviews：`data/raw/dwts_wikipedia_pageviews.csv`
-  - 2020 州人口：`data/raw/us_census_2020_state_population.csv`
-  - （可选）Google Trends：`data/raw/dwts_google_trends.csv`
-    - 当前文件可能存在大量 `TooManyRequestsError` 且 `n_points=0`（早期赛季尤甚），因此在主线建模中应作为“可用则用”的补充信号；默认以 Wikipedia pageviews 作为主要人气 proxy。
+- 外生数据（审计/附录，仅记录）：
+  - Wikipedia pageviews（主线弃用）：`data/raw/dwts_wikipedia_pageviews.csv`
+  - Google Trends（主线弃用）：`data/raw/dwts_google_trends.csv`
+  - 2020 州人口（可选参考）：`data/raw/us_census_2020_state_population.csv`
+    - 审计结论：两份人气 proxy（Trends/Pageviews）当前质量不足，主线不使用，仅作为附录/失败尝试记录（覆盖不足、抓取不稳定、可比性存疑等）。
 
 ### 1.2 建模输入表（建议作为“唯一真源”）
 
@@ -49,10 +49,10 @@
 
 字段建议：
 - 官方静态特征：`celebrity_industry, celebrity_age_during_season, celebrity_homestate, ...`
-- 外生特征：
-  - `wiki_pageviews_sum/mean/max`（赛季窗口）
+- 可选参考变量（稳定可复现）：
   - `state_population_2020`
-  - （可选）`trends_mean/max`
+- 可选内生派生特征（仅由官方数据计算）：
+  - 历史均值/趋势（rolling mean / slope）、周内名次波动等
 
 输出位置建议：`data/processed/dwts_season_features.parquet`
 
@@ -61,10 +61,25 @@
 建议按你们的约定：`src/mcm2026/pipelines/mcm2026c_q<k>_<verb>_<object>.py`
 
 - `mcm2026c_q0_build_weekly_panel.py`（数据落地）
-- `mcm2026c_q1_estimate_fan_votes.py`
-- `mcm2026c_q2_compare_voting_systems.py`
-- `mcm2026c_q3_explain_fan_votes_and_scores.py`
-- `mcm2026c_q4_design_new_system.py`
+- Q1（主线/对照/炫技）：
+  - `mcm2026c_q1_smc_fan_vote.py`
+  - `mcm2026c_q1_rejection_hard_constraints.py`
+  - `mcm2026c_q1_rank_plackett_luce_mcmc.py`
+  - `mcm2026c_q1_dl_elimination_transformer.py`
+- Q2（主线/对照/炫技）：
+  - `mcm2026c_q2_counterfactual_simulation.py`
+  - `mcm2026c_q2_tau_sensitivity.py`
+  - `mcm2026c_q2_controversy_case_studies.py`
+  - `mcm2026c_q2_agentic_ablation_runner.py`
+- Q3（主线/对照/炫技）：
+  - `mcm2026c_q3_mixed_effects_impacts.py`
+  - `mcm2026c_q3_ridge_baseline.py`
+  - `mcm2026c_q3_posterior_refit_kfold.py`
+  - `mcm2026c_q3_dl_fanvote_mlp.py`
+- Q4（候选机制库 + Pareto 评估）：
+  - `mcm2026c_q4_design_space_eval.py`
+  - `mcm2026c_q4_rule_*.py`
+  - `mcm2026c_q4_multiobjective_pareto_search.py`
 
 ## 2. 第一题：估算粉丝投票（核心：逆向约束 + 采样/优化）
 
@@ -105,7 +120,7 @@
 
 - 百分比法：
   - 先验：`P_fan ~ Dirichlet(alpha)`
-  - `alpha` 默认全 1（均匀）；也可用外生数据增强（见 2.5）
+  - `alpha` 默认全 1（均匀）；可做不同先验强度的敏感性分析，但主线不依赖外生人气 proxy
   - 抽样 `P_fan`，计算 `T(i)`，保留满足淘汰约束的样本
   - 得到 `P_fan(i)` 的后验样本集合
 
@@ -133,14 +148,10 @@
 
 ### 2.5 外生数据如何并入（让反推更“有自信”）
 
-- Wikipedia pageviews：作为“人气先验”
-  - 对 Dirichlet 先验取 `alpha_i = 1 + c * norm(pageviews_i)`（c 为超参数）
-  - 解释：pageviews 越高，先验认为该选手粉丝票比例更可能高
-- 州人口：作为粗 proxy
-  - 可作为 pageviews 缺失时的退路：`alpha_i = 1 + c * norm(state_population)`
-- Google Trends（可选）：与 pageviews 类似，但需对 `trends_status` 与 `n_points` 做质量控制；若缺失/报错则不纳入特征或先验（避免引入系统性偏差）。
+- 州人口（可选参考）：
+  - 可作为弱解释变量/敏感性对照（例如加入 Q3 回归），但不作为 Q1 反推的决定性信息。
 
-注意：外生信号只影响“先验”，最终仍由淘汰约束与评委分纠正，不会变成纯外生回归。
+注意：主线反推与机制对比仅依赖官方数据（评委分 + 淘汰结果）。
 
 ### 2.6 验证与可解释性输出
 
@@ -193,7 +204,7 @@
 - 舞伴（pro）：
   - 固定效应/随机效应（建议 random intercept）
   - 可加“历史战绩”特征：例如过往进入决赛次数（需要从本数据计算即可，不必外抓）
-- 外生：pageviews、州人口、（可选）trends
+- 可选参考变量：州人口（仅对美国选手，且不作为决定性输入）
 
 ### 4.3 建模选择
 
@@ -202,13 +213,13 @@
   - 分类：LogisticRegression（例如预测“能否进入决赛”）
 
 - 论文更强方案（推荐）：statsmodels 混合效应
-  - `fan_vote_index ~ age + industry + pageviews + (1|pro) + (1|season)`
+  - `fan_vote_index ~ age + industry + state_population_2020 + (1|pro) + (1|season)`
   - 输出系数、置信区间、显著性与解释
 
 ### 4.4 验证
 
 - 按 season 分组的交叉验证（leave-one-season-out）
-- 与不用外生数据的模型对比（看解释力/泛化是否提升）
+- 与 baseline（Ridge）/不做不确定性传播的版本对比（看解释力/泛化是否提升）
 
 ## 5. 第四题：提出新系统（核心：机制设计 + 指标 + 仿真）
 
@@ -263,9 +274,9 @@
 - 反推不是拍脑袋：
   - 约束来自规则 + 已知淘汰/名次
   - 输出是分布与区间，并给出确定性指标
-- 外生数据有据可查：
-  - pageviews 与人口数据可复现、带元数据
-  - 外生信号只做先验/解释，不强行替代规则约束
+- 外生数据审计有据可查：
+  - 人口数据可复现、带元数据
+  - 人气 proxy（Trends/Pageviews）已完成审计并明确主线弃用；附录可展示失败原因与风险控制
 - 稳健性：
   - 机制切换点（如 season 28）当作参数做敏感性分析
   - 硬/软约束两版对照
@@ -280,13 +291,30 @@
   - 对 pro dancer 做随机效应，给出效应分布与区间，并与 baseline 线性/岭回归对照。
 - **机制设计的指标化 trade-off 曲线**：
   - 为新规则定义“技术保护/人气表达/鲁棒性/可解释性”指标，给出旧规则 vs 新规则的对比表与 trade-off 图。
+- **深度学习/大模型概念的对照实验（附录，可失败）**：
+  - 目的：展示我们掌握新方法，但不让主线依赖它；即使效果不如传统方法，也能给出“为何失败/为何过拟合/传统方法为何更强”的证据。
+  - 数据与合规：仅使用官方数据构造的 `weekly panel` / `season features`（不引入额外外部语料与爬虫数据）。
+  - 任务选择（任选其一或两者都做）：
+    - Q1：把“当周是否被淘汰/进入 bottom-k”作为分类任务（输入为当周评委分相关特征 + 历史统计特征），用小型 MLP/TabTransformer 风格网络做对照。
+    - Q3：对 `fan_vote_index`（来自 Q1 后验均值/样本）做回归，对比 Ridge/混合效应 vs 小型 MLP 的泛化能力。
+  - 对应的“Test-Time Compute”落地方式（不使用不可控的 LLM 推理）：
+    - 多随机种子/多初始化集成（ensemble）+ 校准（温度缩放）作为推断时加计算的稳健化手段。
+  - 复现要求：固定随机种子、记录超参数与训练曲线；结论以分组交叉验证（leave-one-season-out）为准。
+- **LLM / Agent 的现代化应用场景（工具化，不作为主线输入）**：
+  - 目的：提升写作与工程效率，展示“我们会用大模型”，但不把 LLM 产出当作建模数据，避免不可复现与数据政策争议。
+  - 可用场景（任选）：
+    - 规则形式化与边界条件审计：让 LLM 将题面规则转成可执行的伪代码/测试用例清单，用来检查实现是否覆盖“双淘汰/无淘汰/退赛/Judge Save”。
+    - Agentic 实验编排：让 Agent 自动跑 ablation（不同 tau、不同机制假设、不同先验强度、不同 CV 划分），并汇总成表格（核心计算仍是我们自己的代码）。
+    - “论文一致性检查”RAG：对本仓库文档（题面+spec+Q1–Q4 计划）做本地检索问答，检查口径一致、避免自相矛盾与时间泄漏表述。
+    - 结果叙事生成（可控模板）：用 LLM 根据固定模板生成图表 caption / 风险清单 / 解释段落草稿（最终人工审核）。
+    - 机制候选生成（冻结候选集）：用 LLM 提出若干新投票规则候选（公式/参数范围），然后在仿真里做确定性评估；论文中冻结候选列表以保证可复现。
 
 ---
 
 ## 附：下一步最小可执行顺序
 
-1. `q0_build_weekly_panel`：把官方 wide 表转成 weekly panel（含 rank/pct）
-2. `q1_estimate_fan_votes`：先做百分比法（Dirichlet + rejection），输出后验与 certainty
-3. `q2_compare_voting_systems`：用后验做反事实 + judge save
-4. `q3_explain_*`：混合效应解释 pro 与特征
-5. `q4_design_new_system`：定义指标 + 仿真对比
+1. `mcm2026c_q0_build_weekly_panel.py`：把官方 wide 表转成 weekly panel（含 rank/pct）
+2. `mcm2026c_q1_smc_fan_vote.py`：主线反推（Percent/Rank + soft constraint），输出后验与 certainty
+3. `mcm2026c_q2_counterfactual_simulation.py`：用 Q1 后验做反事实 + judge save
+4. `mcm2026c_q3_mixed_effects_impacts.py`：主线解释（混合效应 + 不确定性传播）
+5. `mcm2026c_q4_design_space_eval.py`：候选机制库 + 指标化评估 + trade-off

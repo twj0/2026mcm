@@ -10,6 +10,14 @@
 - `src/mcm2026/pipelines/`
   - One file per sub-question / deliverable.
   - Filename format: `mcmYYYYc_q<k>_<verb>_<object>.py`
+  - If multiple methods are implemented for the same question, include a **method tag** in the filename (after `q<k>`), and treat non-mainline methods as comparison/appendix pipelines:
+    - examples:
+      - `mcm2026c_q1_smc_fan_vote.py`
+      - `mcm2026c_q1_rank_plackett_luce_mcmc.py`
+      - `mcm2026c_q1_dl_elimination_transformer.py`
+      - `mcm2026c_q3_mixed_effects_impacts.py`
+      - `mcm2026c_q3_dl_fanvote_mlp.py`
+      - `mcm2026c_q4_multiobjective_pareto_search.py`
     - examples:
       - `mcm2023c_q1_predict_medals.py`
       - `mcm2024c_q2_optimize_teams.py`
@@ -25,6 +33,8 @@
   - `tables/`: `mcmYYYYc_q<k>_*.csv`
   - `figures/`: `mcmYYYYc_q<k>_*.png`
   - `predictions/`: `mcmYYYYc_q<k>_*.csv`
+  - If multiple methods exist, include the same method tag in artifact names:
+    - `mcm2026c_q1_smc_*.csv`, `mcm2026c_q1_transformer_*.csv`, `mcm2026c_q3_mixed_effects_*.csv`, `mcm2026c_q4_pareto_*.png`
 
 ## Pipeline structure
 

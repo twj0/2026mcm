@@ -23,10 +23,11 @@ description: 目标
 ## Data Policy (DWTS)
 
 - The problem statement permits adding additional information/data, but all sources must be documented.
-- External data is treated as **optional** signals for priors/features/explanations (e.g., popularity proxies), not a replacement for rule-based constraints.
-- Current repository external datasets under `data/raw/` include Wikipedia pageviews, US state population, and Google Trends.
-  - Wikipedia pageviews are expected to be the primary popularity proxy.
-  - Google Trends may have missing/error rows; pipelines must be robust to `trends_status` errors and `n_points=0`.
+- External data is treated as **optional** signals for priors/features/explanations, not a replacement for rule-based constraints.
+- External datasets may be present in `data/raw/`, but they are **not required** for the main solution.
+- Audit conclusion (current repository state):
+  - `data/raw/dwts_google_trends.csv` is excluded from main analysis (coverage limited to seasons 1–20; unstable; values not reliably comparable across contestants).
+  - `data/raw/dwts_wikipedia_pageviews.csv` is excluded from main analysis (currently only covers season 27; insufficient for cross-season analysis).
 
 ## Modeling Constraints (DWTS)
 
