@@ -7,6 +7,7 @@
 - `data/raw/`：题目给定数据（只读）与可选外生数据（主线不依赖）。
 - `data/processed/`：Q0 预处理后的“唯一真源”数据表。
 - `src/mcm2026/pipelines/`：Q0–Q4 主线可复现流水线脚本。
+- `src/mcm2026/pipelines/showcase/`：附录/炫技流水线脚本（不改变主线产物）。
 - `outputs/`：论文所需表格/预测结果（可复现生成）。
 - `docs/`：建模路线、Q1–Q4 方案文档、审计报告（内部）。
 - `paper/`：论文相关文件（当前先用 `paper/draft.md` 写中文草稿）。
@@ -17,6 +18,12 @@
 
 ```bash
 uv run python run_all.py
+```
+
+- 复现主线 + 附录/炫技（showcase，可选）：
+
+```bash
+uv run python run_all.py --showcase
 ```
 
 该命令会依次运行：Q0 → Q1 → Q2 → Q3 → Q4，并写出本仓库主线 CSV 产物。
@@ -65,6 +72,7 @@ uv run python run_all.py
   - `docs/project_document/Q2.md`
   - `docs/project_document/Q3.md`
   - `docs/project_document/Q4.md`
+- Showcase（附录/炫技）说明：`docs/project_document/showcase.md`
 - 写作口径备忘录：`docs/project_document/writing_reference_memo.md`
 
 ## 7. 论文草稿
@@ -72,3 +80,11 @@ uv run python run_all.py
 - 中文草稿（Markdown，无图片）：`paper/draft.md`
 
 后续转 LaTeX 时，再将图表插入 `paper/main.tex` / `paper/figures/`。
+
+## 8. Showcase（附录/炫技）
+
+- 代码目录：`src/mcm2026/pipelines/showcase/`
+- 输出目录：
+  - 表格：`outputs/tables/showcase/`
+
+Showcase 只用于“附录对照实验/失败分析”，不改变 Q0–Q4 主线输出文件名与内容。

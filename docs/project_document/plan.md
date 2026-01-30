@@ -60,6 +60,9 @@
 
 建议按你们的约定：`src/mcm2026/pipelines/mcm2026c_q<k>_<verb>_<object>.py`
 
+- 主线脚本放 `src/mcm2026/pipelines/`；对照/炫技脚本放 `src/mcm2026/pipelines/showcase/`；对应产物写入 `outputs/*/showcase/`。
+- Showcase（附录/炫技）统一说明文档：`docs/project_document/showcase.md`。
+
 - `mcm2026c_q0_build_weekly_panel.py`（数据落地）
 - Q1（主线/对照/炫技）：
   - `mcm2026c_q1_smc_fan_vote.py`
@@ -208,9 +211,7 @@
 
 ### 4.3 建模选择
 
-- 快速 baseline（工程内已具备）：`mcm2026.models.baseline_ml`
-  - 回归：Ridge
-  - 分类：LogisticRegression（例如预测“能否进入决赛”）
+- 快速 baseline（附录/showcase，对照线）：`src/mcm2026/pipelines/showcase/mcm2026c_q3_ml_fan_index_baselines.py`
 
 - 论文更强方案（推荐）：statsmodels 混合效应
   - `fan_vote_index ~ age + industry + state_population_2020 + (1|pro) + (1|season)`

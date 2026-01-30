@@ -152,3 +152,6 @@
 - 所有主线脚本读取 `data/processed/dwts_weekly_panel.csv` / `dwts_season_features.csv`，不要直接从 raw wide 表推特征。
 - 事件落点使用 `exit_week_inferred`（若要使用 `elimination_week`，必须先检查是否 NA，且处理冲突）。
 - 任何引入外生数据的尝试必须是“附录/炫技模块”，并在输出文件名中体现 method tag。
+
+- 附录/炫技（showcase）脚本统一放在：`src/mcm2026/pipelines/showcase/`。
+- 附录/炫技（showcase）产物统一写入：`outputs/tables/showcase/`（以及未来可能的 `outputs/figures/showcase/`）。
