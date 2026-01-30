@@ -92,6 +92,44 @@ def _get_q4_params_from_config() -> tuple[str, int, int, list[float]]:
     return mech, n_sims, seed, outlier_mults
 
 
+def _get_q4_optional_grids_from_config() -> tuple[list[float] | None, list[str] | None, list[int] | None]:
+    cfg = _load_config()
+    node = cfg.get("dwts", {}).get("q4", {}) if isinstance(cfg, dict) else {}
+
+    alpha_grid_raw = node.get("alpha_grid", None)
+    alpha_grid: list[float] | None = None
+    if isinstance(alpha_grid_raw, (list, tuple)):
+        tmp: list[float] = []
+        for x in alpha_grid_raw:
+            try:
+                tmp.append(float(x))
+            except Exception:
+                continue
+        if tmp:
+            alpha_grid = tmp
+
+    mechs_raw = node.get("mechanisms", None)
+    mechanisms: list[str] | None = None
+    if isinstance(mechs_raw, (list, tuple)):
+        tmp2 = [str(x) for x in mechs_raw]
+        if tmp2:
+            mechanisms = tmp2
+
+    seasons_raw = node.get("seasons", None)
+    seasons: list[int] | None = None
+    if isinstance(seasons_raw, (list, tuple)):
+        tmp3: list[int] = []
+        for x in seasons_raw:
+            try:
+                tmp3.append(int(x))
+            except Exception:
+                continue
+        if tmp3:
+            seasons = tmp3
+
+    return alpha_grid, mechanisms, seasons
+
+
 def _read_weekly_panel() -> pd.DataFrame:
     return io.read_table(paths.processed_data_dir() / "dwts_weekly_panel.csv")
 
@@ -508,6 +546,9 @@ def run(
     if outlier_mults is None:
         outlier_mults = list(outlier_mults_cfg)
 
+    alpha_grid_cfg, mechanisms_cfg, seasons_cfg = _get_q4_optional_grids_from_config()
+    alphas = [alpha] if alpha_grid_cfg is None else list(alpha_grid_cfg)
+
     weekly = _read_weekly_panel()
     q1 = _read_q1_posterior_summary()
 
@@ -525,7 +566,13 @@ def run(
 
     df = weekly.merge(q1p, how="left", on=["season", "week", "celebrity_name"])
 
-    mechanisms = [
+    n_seasons = int(df["season"].nunique())
+    print(
+        "Q4: evaluating design space | "
+        f"seasons={n_seasons} | n_sims={int(n_sims)} | outlier_mults={list(outlier_mults)}"
+    )
+
+    allowed_mechs = {
         "percent",
         "rank",
         "percent_judge_save",
@@ -533,13 +580,40 @@ def run(
         "percent_log",
         "dynamic_weight",
         "percent_cap",
-    ]
+    }
+    if mechanisms_cfg is None:
+        mechanisms = [
+            "percent",
+            "rank",
+            "percent_judge_save",
+            "percent_sqrt",
+            "percent_log",
+            "dynamic_weight",
+            "percent_cap",
+        ]
+    else:
+        mechanisms = [m for m in mechanisms_cfg if m in allowed_mechs]
+        if not mechanisms:
+            mechanisms = [
+                "percent",
+                "rank",
+                "percent_judge_save",
+                "percent_sqrt",
+                "percent_log",
+                "dynamic_weight",
+                "percent_cap",
+            ]
 
     rng_master = np.random.default_rng(int(seed))
 
     rows: list[dict] = []
 
-    for season, g in df.groupby("season", sort=True):
+    if seasons_cfg is not None:
+        df = df.loc[df["season"].astype(int).isin(set(int(x) for x in seasons_cfg))].copy()
+        n_seasons = int(df["season"].nunique())
+
+    for season_i, (season, g) in enumerate(df.groupby("season", sort=True), start=1):
+        print(f"Q4: season {int(season)} ({season_i}/{n_seasons})")
         g = g.copy()
         g["week"] = g["week"].astype(int)
         season_weeks = sorted(g["week"].unique().tolist())
@@ -560,25 +634,23 @@ def run(
             dff2 = dff.sort_values(["judge_score_pct", "celebrity_name"], ascending=[False, True], kind="mergesort")
             top_judge_final = str(dff2["celebrity_name"].iloc[0])
 
-        for mech in mechanisms:
-            for outlier_mult in outlier_mults:
+        base_seeds = [int(rng_master.integers(0, 2**31 - 1)) for _ in range(int(n_sims))]
+
+        for alpha_eval in alphas:
+            for mech in mechanisms:
                 champ_counts: dict[str, int] = {}
                 tpi_vals: list[float] = []
                 fan_vs_uniform_vals: list[int] = []
-                robust_fail_vals: list[int] = []
 
-                for i in range(int(n_sims)):
-                    # Derive per-sim RNGs deterministically.
-                    base_seed = int(rng_master.integers(0, 2**31 - 1))
+                for base_seed in base_seeds:
                     rng_base = np.random.default_rng(base_seed)
                     rng_u = np.random.default_rng(base_seed + 1)
-                    rng_out = np.random.default_rng(base_seed + 2)
 
                     champ = _simulate_one(
                         season_week_map,
                         season_weeks,
                         mechanism=mech,
-                        alpha=alpha,
+                        alpha=float(alpha_eval),
                         rng=rng_base,
                         use_uniform_fans=False,
                         outlier_mult=None,
@@ -588,30 +660,15 @@ def run(
                         season_week_map,
                         season_weeks,
                         mechanism=mech,
-                        alpha=alpha,
+                        alpha=float(alpha_eval),
                         rng=rng_u,
                         use_uniform_fans=True,
                         outlier_mult=None,
                     )
 
-                    champ_out = _simulate_one(
-                        season_week_map,
-                        season_weeks,
-                        mechanism=mech,
-                        alpha=alpha,
-                        rng=rng_out,
-                        use_uniform_fans=False,
-                        outlier_mult=float(outlier_mult),
-                    )
-
                     champ_counts[champ] = champ_counts.get(champ, 0) + 1
-
-                    # Renamed: fan_influence_rate -> fan_vs_uniform_contrast
-                    # This measures difference between realistic fan distribution vs uniform baseline
                     fan_vs_uniform_vals.append(int(champ != champ_u))
-                    robust_fail_vals.append(int(top_judge_final != "" and champ_out != top_judge_final))
 
-                    # Improved TPI: season-average judge percentile instead of final-week only
                     if champ:
                         season_tpi = _calculate_season_tpi(champ, season_week_map, season_weeks)
                         if not np.isnan(season_tpi):
@@ -619,24 +676,43 @@ def run(
 
                 champ_mode = max(champ_counts.items(), key=lambda kv: kv[1])[0] if champ_counts else ""
                 champ_mode_prob = float(champ_counts.get(champ_mode, 0) / float(n_sims)) if n_sims > 0 else float("nan")
+                champ_entropy = _safe_entropy(champ_counts)
+                tpi_season_avg = float(np.mean(tpi_vals)) if tpi_vals else float("nan")
+                fan_vs_uniform_contrast = float(np.mean(fan_vs_uniform_vals)) if fan_vs_uniform_vals else float("nan")
 
-                rows.append(
-                    {
-                        "season": int(season),
-                        "mechanism": mech,
-                        "alpha": float(alpha),
-                        "n_sims": int(n_sims),
-                        "n_finalists": int(n_finalists),
-                        "top_judge_final": top_judge_final,
-                        "champion_mode": champ_mode,
-                        "champion_mode_prob": champ_mode_prob,
-                        "champion_entropy": _safe_entropy(champ_counts),
-                        "tpi_season_avg": float(np.mean(tpi_vals)) if tpi_vals else float("nan"),
-                        "fan_vs_uniform_contrast": float(np.mean(fan_vs_uniform_vals)) if fan_vs_uniform_vals else float("nan"),
-                        "robust_fail_rate": float(np.mean(robust_fail_vals)) if robust_fail_vals else float("nan"),
-                        "outlier_mult": float(outlier_mult),
-                    }
-                )
+                for outlier_mult in outlier_mults:
+                    robust_fail_vals: list[int] = []
+
+                    for base_seed in base_seeds:
+                        rng_out = np.random.default_rng(base_seed + 2)
+                        champ_out = _simulate_one(
+                            season_week_map,
+                            season_weeks,
+                            mechanism=mech,
+                            alpha=float(alpha_eval),
+                            rng=rng_out,
+                            use_uniform_fans=False,
+                            outlier_mult=float(outlier_mult),
+                        )
+                        robust_fail_vals.append(int(top_judge_final != "" and champ_out != top_judge_final))
+
+                    rows.append(
+                        {
+                            "season": int(season),
+                            "mechanism": mech,
+                            "alpha": float(alpha_eval),
+                            "n_sims": int(n_sims),
+                            "n_finalists": int(n_finalists),
+                            "top_judge_final": top_judge_final,
+                            "champion_mode": champ_mode,
+                            "champion_mode_prob": champ_mode_prob,
+                            "champion_entropy": champ_entropy,
+                            "tpi_season_avg": tpi_season_avg,
+                            "fan_vs_uniform_contrast": fan_vs_uniform_contrast,
+                            "robust_fail_rate": float(np.mean(robust_fail_vals)) if robust_fail_vals else float("nan"),
+                            "outlier_mult": float(outlier_mult),
+                        }
+                    )
 
     out = pd.DataFrame(rows)
 

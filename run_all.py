@@ -23,6 +23,8 @@ def _list_raw_files(raw_dir: Path) -> list[Path]:
 
 
 def main() -> int:
+    run_showcase = "--showcase" in sys.argv
+
     _bootstrap_imports()
 
     from mcm2026.core import paths
@@ -60,22 +62,40 @@ def main() -> int:
     if raw_files:
         print(f"Audited {len(raw_files)} raw file(s). See outputs/tables/raw_audit_summary.csv")
 
+    print("Running Q0 (build weekly panel)...")
     q0_out = run_q0()
     print(f"Built processed dataset: {q0_out.weekly_panel_csv}")
     print(f"Built processed dataset: {q0_out.season_features_csv}")
 
+    print("Running Q1 (fan vote inference)...")
     q1_out = run_q1()
     print(f"Wrote: {q1_out.posterior_summary_csv}")
     print(f"Wrote: {q1_out.uncertainty_summary_csv}")
 
+    print("Running Q2 (counterfactual mechanism simulation)...")
     q2_out = run_q2()
     print(f"Wrote: {q2_out.mechanism_comparison_csv}")
 
+    print("Running Q3 (mixed effects impacts)...")
     q3_out = run_q3()
     print(f"Wrote: {q3_out.impact_coeffs_csv}")
 
+    print("Running Q4 (new system design space eval)...")
     q4_out = run_q4()
     print(f"Wrote: {q4_out.new_system_metrics_csv}")
+
+    if run_showcase:
+        print("Running showcase pipelines (appendix-only)...")
+        from mcm2026.pipelines.showcase.mcm2026c_q1_ml_elimination_baselines import run as run_sc_q1
+        from mcm2026.pipelines.showcase.mcm2026c_q3_ml_fan_index_baselines import run as run_sc_q3
+
+        sc_q1_out = run_sc_q1()
+        print(f"Wrote: {sc_q1_out.cv_metrics_csv}")
+        print(f"Wrote: {sc_q1_out.cv_summary_csv}")
+
+        sc_q3_out = run_sc_q3()
+        print(f"Wrote: {sc_q3_out.cv_metrics_csv}")
+        print(f"Wrote: {sc_q3_out.cv_summary_csv}")
     return 0
 
 

@@ -9,7 +9,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import statsmodels.formula.api as smf
+from statsmodels.tools.sm_exceptions import ConvergenceWarning
 import yaml
+import warnings
 
 from mcm2026.core import paths
 from mcm2026.data import io
@@ -149,29 +151,18 @@ def _build_season_level_dataset(
     return df
 
 
-def _fit_mixedlm_or_ols(df: pd.DataFrame, *, y_col: str, rng: np.random.Generator | None = None) -> tuple[str, object, list[str]]:
+def _fit_mixedlm_or_ols(
+    df: pd.DataFrame,
+    *,
+    y_col: str,
+    rng: np.random.Generator | None = None,
+    force: str | None = None,
+) -> tuple[str, object, list[str]]:
     # MixedLM with pro random intercept and season variance component.
     # Fallback to OLS with pro/season fixed effects if MixedLM fails.
     formula = f"{y_col} ~ age + age_sq + C(industry) + is_us + log_state_pop"
 
-    try:
-        model = smf.mixedlm(
-            formula,
-            df,
-            groups=df["pro_name"],
-            re_formula="1",
-            vc_formula={"season": "0 + C(season)"},
-        )
-        # deterministic-ish initialization
-        start_params = None
-        if rng is not None:
-            # small random perturbation to avoid singular start in some edge cases
-            start_params = None
-        res = model.fit(method="lbfgs", maxiter=200, disp=False, start_params=start_params)
-        fe_names = list(res.model.exog_names)
-        return "mixedlm", res, fe_names
-    except Exception:
-        # Heavy but robust fallback.
+    def _fit_ols() -> tuple[str, object, list[str]]:
         ols_formula = formula + " + C(pro_name) + C(season)"
         res = smf.ols(ols_formula, df).fit()
 
@@ -184,6 +175,48 @@ def _fit_mixedlm_or_ols(df: pd.DataFrame, *, y_col: str, rng: np.random.Generato
 
         fe_names = [t for t in list(res.params.index) if keep_term(t)]
         return "ols", res, fe_names
+
+    if force == "ols":
+        return _fit_ols()
+
+    try:
+        with warnings.catch_warnings(record=True) as rec:
+            warnings.simplefilter("always", ConvergenceWarning)
+            warnings.simplefilter("always", UserWarning)
+
+            model = smf.mixedlm(
+                formula,
+                df,
+                groups=df["pro_name"],
+                re_formula="1",
+                vc_formula={"season": "0 + C(season)"},
+            )
+
+            res = model.fit(method="lbfgs", maxiter=200, disp=False)
+
+        converged = bool(getattr(res, "converged", True))
+        warn_text = "\n".join([str(w.message) for w in rec])
+        has_singular = "covariance is singular" in warn_text.lower()
+        has_nonconverge = any(isinstance(w.message, ConvergenceWarning) for w in rec) or (not converged)
+
+        cov_re = getattr(res, "cov_re", None)
+        cov_bad = False
+        if cov_re is not None:
+            try:
+                diag = np.diag(np.asarray(cov_re, dtype=float))
+                cov_bad = bool(np.any(~np.isfinite(diag)))
+            except Exception:
+                cov_bad = True
+
+        if has_singular or has_nonconverge or cov_bad:
+            raise RuntimeError("MixedLM unstable fit")
+
+        fe_names = list(res.model.exog_names)
+        return "mixedlm", res, fe_names
+    except Exception:
+        if force == "mixedlm":
+            raise
+        return _fit_ols()
 
 
 def _extract_fixed_effect_table(
@@ -306,6 +339,7 @@ def run(
     # 2) Fans line: refit with posterior uncertainty propagation.
     # Sample season-level fan_vote_index around mean using sd-of-mean from Q1.
     coeff_draws: list[pd.DataFrame] = []
+    force_fan: str | None = None
     for k in range(int(n_refits)):
         y = df["fan_vote_index_mean"].astype(float).to_numpy(copy=True)
         sd = df["fan_vote_index_sd_mean"].astype(float).to_numpy(copy=True)
@@ -315,7 +349,9 @@ def run(
         df_k = df.copy()
         df_k["fan_vote_index_draw"] = y_draw
 
-        model_kind_f, res_f, fe_names_f = _fit_mixedlm_or_ols(df_k, y_col="fan_vote_index_draw", rng=rng)
+        model_kind_f, res_f, fe_names_f = _fit_mixedlm_or_ols(df_k, y_col="fan_vote_index_draw", rng=rng, force=force_fan)
+        if k == 0:
+            force_fan = model_kind_f
         tab_f = _extract_fixed_effect_table(
             outcome="fan_vote_index_mean",
             model_kind=model_kind_f,
