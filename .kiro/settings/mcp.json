@@ -1,0 +1,60 @@
+{
+  "mcpServers": {
+
+    // 这是mcp服务配置文件，意外的兼容jsonc语法
+    // fetch可以作为联网的mcp，虽然kiro自己是支持联网的，但是我习惯了
+    "fetch": {
+      "command": "uvx",
+      "args": ["mcp-server-fetch"],
+      "env": {},
+      "disabled": true,
+      "autoApprove": []
+    },
+    // 这是mcp-feedback-enhanced
+    // 这个mcp是用于反馈的，其实就是寸止类型的mcp，不过kiro不是次数，是积分，所以没什么用
+    "mcp-feedback-enhanced": {
+        "command": "uvx",
+        "args": ["mcp-feedback-enhanced@latest"],
+        "timeout": 600,
+        "autoApprove": ["interactive_feedback"]
+      },
+      // 经典ace，但是AI很少使用ace检索上下文的
+      "ace-tool": {
+      "args": [
+        "ace-tool",
+        "--base-url",
+        "https://acemcp.heroman.wtf/relay/",
+        "--token",
+        "ace_6ee0ae2e64b8680ee422f4244c4924c6e601faef"
+      ],
+      "command": "npx"
+    },
+    "acemcp": {
+      "args": [
+        "acemcp",
+        "--web-port",
+        "8888"
+      ],
+      "command": "uvx",
+      "disabled": false
+    },
+    // 或许可以搜索学术论文？
+    "arxiv-mcp-server": {
+      "args": [
+        "--directory",
+        "D:/MCP/paper-search-mcp/arxiv-mcp-server",
+        "run",
+        "arxiv-mcp-server",
+        "--storage-path",
+        "D:/MCP/paper-search-mcp/arxiv-mcp-server/paper"
+      ],
+      "command": "uv"
+    },
+    // 不想用context7可以用fetch的几乎平替，exa但没key
+    "exa": {
+      "url": "https://mcp.exa.ai/mcp"
+    }
+
+  
+  }
+}
