@@ -269,6 +269,53 @@
 - pro 随机效应/固定效应可视化
 - 新机制 trade-off 曲线
 
+### 6.3 出图计划（LaTeX 阶段的“图谱清单”，不影响主线代码）
+
+说明：现阶段主线先保证 CSV 产物与叙事闭环；图在 LaTeX 阶段生成并插入。每张图都需要同时回答一个“评委会问的问题”。
+
+1. **Fig-Q0-1：数据覆盖与事件类型概览（sanity）**
+   - 数据源：`outputs/tables/mcm2026c_q0_sanity_season_week.csv`、`outputs/tables/mcm2026c_q0_sanity_contestant.csv`
+   - 画法：条形图/表格化摘要（缺失/冲突为 0 的结论要显式写出）
+   - 想回答：预处理是否可靠、是否存在大规模结构性缺失。
+
+2. **Fig-Q1-1：不确定性强弱分布（ESS / evidence）**
+   - 数据源：`outputs/tables/mcm2026c_q1_uncertainty_summary.csv`
+   - 画法：
+     - `ess_ratio` 的直方图/箱线图（可按 mechanism 分组）
+     - `evidence` 的直方图/箱线图
+   - 想回答：哪些周可辨识性强/弱，主线推断是否“合理但不过度自信”。
+
+3. **Fig-Q1-2：示例赛季的 fan_share / fan_vote_index 时间序列（带区间）**
+   - 数据源：`outputs/predictions/mcm2026c_q1_fan_vote_posterior_summary.csv`
+   - 列：`season, week, celebrity_name, mechanism, fan_share_mean, fan_share_p05, fan_share_p95, fan_vote_index_mean, fan_vote_index_p05, fan_vote_index_p95`
+   - 画法：选 1 个“正常季” + 1 个“争议季”各画 1 张（折线 + ribbon 区间）
+   - 想回答：粉丝强度随周次的动态是否符合直觉（淘汰前后变化、不确定性随 active 数量变化）。
+
+4. **Fig-Q2-1：机制一致性与分歧周（Percent vs Rank）**
+   - 数据源：`outputs/tables/mcm2026c_q2_mechanism_comparison.csv`
+   - 画法：
+     - 每季 `match_rate_percent / match_rate_rank` 条形图
+     - `diff_weeks_percent_vs_rank` 条形图（指出分歧周占比）
+   - 想回答：两种公开说法在历史数据上的“可兼容程度”，以及分歧集中在哪些季/周。
+
+5. **Fig-Q3-1：固定效应系数森林图（两条线：技术 vs 人气）**
+   - 数据源：`outputs/tables/mcm2026c_q3_impact_analysis_coeffs.csv`
+   - 画法：对 `judge_score_pct_mean` 与 `fan_vote_index_mean` 各画一张 forest plot（`estimate` + CI）
+   - 想回答：哪些特征在“技术线”有效、哪些在“人气线”有效（以及不确定性是否足够诚实）。
+
+6. **Fig-Q4-1：新机制 trade-off 散点图（Pareto 视角）**
+   - 数据源：`outputs/tables/mcm2026c_q4_new_system_metrics.csv`
+   - 列：`mechanism, outlier_mult, tpi_season_avg, fan_vs_uniform_contrast, robust_fail_rate`
+   - 画法：
+     - 横轴 `fan_vs_uniform_contrast`，纵轴 `tpi_season_avg`，点颜色/大小编码 `robust_fail_rate`
+     - 按 `outlier_mult` 分面（2x/5x/10x）
+   - 想回答：规则不是“谁更好”，而是 trade-off；压力测试档位越极端，机制排序是否发生变化。
+
+7. **Fig-Q4-2：Bobby Bones（S27）压力测试冠军概率**
+   - 数据源：`outputs/tables/mcm2026c_q4_new_system_metrics.csv`
+   - 画法：S27 子集，按 mechanism×outlier_mult 的 `champion_mode_prob` 柱状图/热力图
+   - 想回答：外部动员型极端案例在何种压力档位下出现，以及为何我们把它当作“风控边界”而不是主线失败。
+
 ## 7. 我们的“自信来源”（写给评委看的）
 
 - 反推不是拍脑袋：
