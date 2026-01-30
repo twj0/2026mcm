@@ -99,6 +99,17 @@
 - `outputs/tables/mcm2026c_q0_sanity_season_week.csv`
 - `outputs/tables/mcm2026c_q0_sanity_contestant.csv`
 
+### 2.4 现实一致性检查（数值约束与值域 sanity）
+
+为避免“模型算出来但不符合现实口径”的风险，我们对主线输入/输出做了最小但关键的数值一致性检查（均可由产物 CSV 复现）：
+
+- **评委份额归一化**：在每个 `season-week` 的在赛集合内，`judge_score_pct` 求和应为 1. 我们在 `dwts_weekly_panel.csv` 的 active 子集上核验，最大绝对误差约 `1e-15`.
+- **粉丝份额在 simplex 上**：在每个 `season-week-mechanism` 内，Q1 的 `fan_share_mean` 求和应为 1. 核验最大绝对误差约 `1e-15`；且 `fan_share_mean/p05/p95` 均落在 `[0,1]`.
+- **Q4 指标为概率/比例，必须在 `[0,1]`**：`tpi_season_avg, fan_vs_uniform_contrast, robust_fail_rate, champion_mode_prob` 在全表范围内均满足 `[0,1]`，且无缺失.
+- **Q2 的“现实对齐”解释口径**：`match_rate_percent` 在主线设置下为 1（可视作“份额口径回放历史”的一致性检查）；`match_rate_rank` 通常小于 1，反映两种公开叙事在历史淘汰上的差异；Judge Save 相关统计在缺少单淘汰周的赛季会出现 NA，这属于结构性现象而非数值错误.
+
+以上检查不证明模型“预测真实票数”，但确保主线推断与仿真严格满足 DWTS 规则口径下的基础约束，并且所有“概率/份额型输出”均处于现实可解释的值域内.
+
 ---
 
 ## 3. Q1：反推粉丝投票强度（Fan Vote Estimation）
