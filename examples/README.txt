@@ -12,7 +12,6 @@
 8.https://github.com/lucky-sheltered-boy/2026-MCM-C-Problem.git # 北航，看起来有点东西
 9.https://github.com/zimingttkx/AmericaMathModel.git # C题，神秘工具箱
 10.https://github.com/ccycyc6/MCM.git # 看不懂
-11.https://github.com/ynw770179-boop/MCM1.1.git # 看不懂
-12.https://github.com/OHHHHHHei/MCM_Problem_C.git # 厦门大学
-13.https://github.com/gaozhi2003/MCM2026.git # 南京大学|软件工程专业
-14.https://github.com/Camelliazzz07/ICM-MCM2026C.git # 还行
+11.https://github.com/OHHHHHHei/MCM_Problem_C.git # 厦门大学
+12.https://github.com/gaozhi2003/MCM2026.git # 南京大学|软件工程专业
+13.https://github.com/Camelliazzz07/ICM-MCM2026C.git # 还行
