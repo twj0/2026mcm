@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 
 def _bootstrap_imports() -> None:
@@ -25,6 +26,7 @@ def _list_raw_files(raw_dir: Path) -> list[Path]:
 def main() -> int:
     run_showcase = "--showcase" in sys.argv
 
+    repo_root = Path(__file__).resolve().parent
     _bootstrap_imports()
 
     from mcm2026.core import paths
@@ -85,17 +87,92 @@ def main() -> int:
     print(f"Wrote: {q4_out.new_system_metrics_csv}")
 
     if run_showcase:
+        cfg = {}
+        cfg_path = repo_root / "src" / "mcm2026" / "config" / "config.yaml"
+        if cfg_path.exists():
+            text = cfg_path.read_text(encoding="utf-8")
+            if text.strip():
+                loaded = yaml.safe_load(text)
+                cfg = loaded if isinstance(loaded, dict) else {}
+
+        sc = cfg.get("showcase", {}) if isinstance(cfg, dict) else {}
+        sc_enabled = bool(sc.get("enabled", False))
+        if not sc_enabled:
+            print("Showcase disabled in config (showcase.enabled=false).")
+            return 0
+
+        sc_seed = int(sc.get("seed", 20260130))
+        sc_out_dir = Path(str(sc.get("output_dir", "outputs/tables/showcase")))
+        if not sc_out_dir.is_absolute():
+            sc_out_dir = repo_root / sc_out_dir
+
+        q1_sc = sc.get("q1", {}) if isinstance(sc, dict) else {}
+        q2_sc = sc.get("q2", {}) if isinstance(sc, dict) else {}
+        q3_sc = sc.get("q3", {}) if isinstance(sc, dict) else {}
+        q4_sc = sc.get("q4", {}) if isinstance(sc, dict) else {}
+
         print("Running showcase pipelines (appendix-only)...")
-        from mcm2026.pipelines.showcase.mcm2026c_q1_ml_elimination_baselines import run as run_sc_q1
-        from mcm2026.pipelines.showcase.mcm2026c_q3_ml_fan_index_baselines import run as run_sc_q3
 
-        sc_q1_out = run_sc_q1()
-        print(f"Wrote: {sc_q1_out.cv_metrics_csv}")
-        print(f"Wrote: {sc_q1_out.cv_summary_csv}")
+        if bool(q1_sc.get("enabled", False)):
+            from mcm2026.pipelines.showcase.mcm2026c_q1_ml_elimination_baselines import run as run_sc_q1
+            from mcm2026.pipelines.showcase.mcm2026c_showcase_q1_sensitivity import run as run_sc_q1_sens
 
-        sc_q3_out = run_sc_q3()
-        print(f"Wrote: {sc_q3_out.cv_metrics_csv}")
-        print(f"Wrote: {sc_q3_out.cv_summary_csv}")
+            sc_q1_out = run_sc_q1(seed=sc_seed, output_dir=sc_out_dir)
+            print(f"Wrote: {sc_q1_out.cv_metrics_csv}")
+            print(f"Wrote: {sc_q1_out.cv_summary_csv}")
+
+            sc_q1_sens_out = run_sc_q1_sens(
+                seed=sc_seed,
+                output_dir=sc_out_dir,
+                alpha_grid=q1_sc.get("alpha_grid", None),
+                tau_grid=q1_sc.get("tau_grid", None),
+                prior_draws_m_grid=q1_sc.get("prior_draws_m_grid", None),
+                posterior_resample_r_grid=q1_sc.get("posterior_resample_r_grid", None),
+                max_runs=q1_sc.get("max_runs", None),
+            )
+            print(f"Wrote: {sc_q1_sens_out.sensitivity_summary_csv}")
+
+        if bool(q2_sc.get("enabled", False)):
+            from mcm2026.pipelines.showcase.mcm2026c_showcase_q2_grid import run as run_sc_q2
+
+            sc_q2_out = run_sc_q2(
+                seed=sc_seed,
+                output_dir=sc_out_dir,
+                fan_source_mechanism_grid=q2_sc.get("fan_source_mechanism_grid", None),
+                count_withdraw_as_exit_grid=q2_sc.get("count_withdraw_as_exit_grid", None),
+            )
+            print(f"Wrote: {sc_q2_out.grid_csv}")
+
+        if bool(q3_sc.get("enabled", False)):
+            from mcm2026.pipelines.showcase.mcm2026c_q3_ml_fan_index_baselines import run as run_sc_q3
+            from mcm2026.pipelines.showcase.mcm2026c_showcase_q3_refit_grid import run as run_sc_q3_refits
+
+            sc_q3_out = run_sc_q3(seed=sc_seed, output_dir=sc_out_dir)
+            print(f"Wrote: {sc_q3_out.cv_metrics_csv}")
+            print(f"Wrote: {sc_q3_out.cv_summary_csv}")
+
+            sc_q3_ref_out = run_sc_q3_refits(
+                seed=sc_seed,
+                output_dir=sc_out_dir,
+                n_refits_grid=q3_sc.get("n_refits_grid", None),
+                max_runs=q3_sc.get("max_runs", None),
+            )
+            print(f"Wrote: {sc_q3_ref_out.grid_csv}")
+
+        if bool(q4_sc.get("enabled", False)):
+            from mcm2026.pipelines.showcase.mcm2026c_showcase_q4_sensitivity import run as run_sc_q4
+
+            sc_q4_out = run_sc_q4(
+                seed=sc_seed,
+                output_dir=sc_out_dir,
+                alpha_grid=q4_sc.get("alpha_grid", None),
+                n_sims_grid=q4_sc.get("n_sims_grid", None),
+                outlier_mults_grid=q4_sc.get("outlier_mults_grid", None),
+                mechanisms=q4_sc.get("mechanisms", None),
+                seasons=q4_sc.get("seasons", None),
+                max_runs=q4_sc.get("max_runs", None),
+            )
+            print(f"Wrote: {sc_q4_out.grid_csv}")
     return 0
 
 

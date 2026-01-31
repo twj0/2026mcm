@@ -1,0 +1,2 @@
+season,mechanism,alpha,n_sims,n_finalists,top_judge_final,champion_mode,champion_mode_prob,champion_entropy,tpi_season_avg,fan_vs_uniform_contrast,robust_fail_rate,outlier_mult,champion_predictability,system_balance,robustness_score,season_era,alpha_outlier_interaction,is_pareto_optimal
+10,rank,0.5,5,3,Nicole Scherzinger,Nicole Scherzinger,1.0,-0.0,0.9788888888888888,0.0,0.2,2.0,1.0,0.0,0.8,early,1.0,True

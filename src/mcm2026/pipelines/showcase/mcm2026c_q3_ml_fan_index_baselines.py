@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# Ref: docs/spec/task.md
+# Ref: docs/spec/architecture.md
+
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -98,6 +101,7 @@ def run(
     seed: int = 20260130,
     fan_source_mechanism: str | None = None,
     max_test_seasons: int | None = None,
+    output_dir: Path | None = None,
 ) -> Q3BaselineOutputs:
     paths.ensure_dirs()
 
@@ -168,7 +172,7 @@ def run(
 
     out = pd.DataFrame(rows)
 
-    out_dir = paths.tables_dir() / "showcase"
+    out_dir = (paths.tables_dir() / "showcase") if output_dir is None else Path(output_dir)
     out_fp = out_dir / "mcm2026c_q3_ml_fan_index_baselines_cv.csv"
     io.write_csv(out, out_fp)
 

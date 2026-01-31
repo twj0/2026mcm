@@ -1,0 +1,3 @@
+mechanism,n_simulations,match_rate_percent_mean,match_rate_percent_std,match_rate_rank_mean,match_rate_rank_std,controversy_rate_mean,controversy_rate_std
+percent,68,0.9881244164332399,0.04584686607247301,0.8381477591036414,0.16186649027287178,,
+rank,68,0.9629726890756303,0.07492982648362098,0.9475081699346406,0.08759818684491358,,

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+# Ref: docs/spec/task.md
+# Ref: docs/spec/architecture.md
+
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -155,7 +158,12 @@ def _fit_and_score(
     return out
 
 
-def run(*, seed: int = 20260130, max_test_seasons: int | None = None) -> Q1BaselineOutputs:
+def run(
+    *,
+    seed: int = 20260130,
+    max_test_seasons: int | None = None,
+    output_dir: Path | None = None,
+) -> Q1BaselineOutputs:
     paths.ensure_dirs()
 
     weekly = _read_weekly_panel()
@@ -217,7 +225,7 @@ def run(*, seed: int = 20260130, max_test_seasons: int | None = None) -> Q1Basel
 
     out = pd.DataFrame(rows)
 
-    out_dir = paths.tables_dir() / "showcase"
+    out_dir = (paths.tables_dir() / "showcase") if output_dir is None else Path(output_dir)
     out_fp = out_dir / "mcm2026c_q1_ml_elimination_baselines_cv.csv"
     io.write_csv(out, out_fp)
 

@@ -535,6 +535,9 @@ def run(
     alpha: float | None = None,
     outlier_mults: list[float] | None = None,
     fan_source_mechanism: str | None = None,
+    mechanisms: list[str] | None = None,
+    seasons: list[int] | None = None,
+    output_path: Path | None = None,
 ) -> Q4Outputs:
     paths.ensure_dirs()
 
@@ -557,6 +560,10 @@ def run(
         outlier_mults = list(outlier_mults_cfg)
 
     alpha_grid_cfg, mechanisms_cfg, seasons_cfg = _get_q4_optional_grids_from_config()
+    if mechanisms is not None:
+        mechanisms_cfg = list(mechanisms)
+    if seasons is not None:
+        seasons_cfg = list(seasons)
     alphas = [alpha] if alpha_grid_cfg is None else list(alpha_grid_cfg)
 
     weekly = _read_weekly_panel()
@@ -726,7 +733,7 @@ def run(
 
     out = pd.DataFrame(rows)
 
-    out_fp = paths.tables_dir() / "mcm2026c_q4_new_system_metrics.csv"
+    out_fp = (paths.tables_dir() / "mcm2026c_q4_new_system_metrics.csv") if output_path is None else Path(output_path)
     io.write_csv(out, out_fp)
 
     return Q4Outputs(new_system_metrics_csv=out_fp)

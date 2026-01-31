@@ -370,6 +370,8 @@ def run(
     tau: float | None = None,
     prior_draws_m: int | None = None,
     posterior_resample_r: int | None = None,
+    output_posterior_path: Path | None = None,
+    output_uncertainty_path: Path | None = None,
 ) -> Q1Outputs:
     paths.ensure_dirs()
 
@@ -400,8 +402,16 @@ def run(
     posterior = pd.concat(weekly_rows, ignore_index=True)
     uncertainty = pd.DataFrame(uncertainty_rows)
 
-    out_pred = paths.predictions_dir() / "mcm2026c_q1_fan_vote_posterior_summary.csv"
-    out_unc = paths.tables_dir() / "mcm2026c_q1_uncertainty_summary.csv"
+    out_pred = (
+        paths.predictions_dir() / "mcm2026c_q1_fan_vote_posterior_summary.csv"
+        if output_posterior_path is None
+        else Path(output_posterior_path)
+    )
+    out_unc = (
+        paths.tables_dir() / "mcm2026c_q1_uncertainty_summary.csv"
+        if output_uncertainty_path is None
+        else Path(output_uncertainty_path)
+    )
 
     io.write_csv(posterior, out_pred)
     io.write_csv(uncertainty, out_unc)

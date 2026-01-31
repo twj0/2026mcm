@@ -302,6 +302,7 @@ def run(
     n_refits: int | None = None,
     seed: int | None = None,
     fan_source_mechanism: str | None = None,
+    output_path: Path | None = None,
 ) -> Q3Outputs:
     paths.ensure_dirs()
 
@@ -384,7 +385,7 @@ def run(
 
     out = pd.concat([out_j, out_f], ignore_index=True)
 
-    out_fp = paths.tables_dir() / "mcm2026c_q3_impact_analysis_coeffs.csv"
+    out_fp = (paths.tables_dir() / "mcm2026c_q3_impact_analysis_coeffs.csv") if output_path is None else Path(output_path)
     io.write_csv(out, out_fp)
 
     return Q3Outputs(impact_coeffs_csv=out_fp)

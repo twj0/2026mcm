@@ -189,3 +189,35 @@ dwts:
 #    - 如果结果不稳定：增加prior_draws_m和posterior_resample_r
 #    - 如果Bobby Bones案例拟合不好：增加tau（比如改成0.05）
 #    - 如果想要更保守的技术保护：增加alpha（比如改成0.6）
+
+showcase:
+  enabled: false
+  seed: 20260130
+  output_dir: outputs/tables/showcase
+
+  q1:
+    enabled: false
+    max_runs: null
+    alpha_grid: [0.3, 0.4, 0.5, 0.6, 0.7]
+    tau_grid: [0.01, 0.02, 0.03, 0.05, 0.1]
+    prior_draws_m_grid: [1000, 2000, 5000]
+    posterior_resample_r_grid: [300, 500, 800]
+
+  q2:
+    enabled: false
+    fan_source_mechanism_grid: [percent, rank]
+    count_withdraw_as_exit_grid: [true, false]
+
+  q3:
+    enabled: false
+    max_runs: null
+    n_refits_grid: [50, 100, 200]
+
+  q4:
+    enabled: false
+    max_runs: null
+    alpha_grid: [0.3, 0.4, 0.5, 0.6, 0.7]
+    n_sims_grid: [10, 20, 50, 100]
+    outlier_mults_grid: [[2.0], [2.0, 5.0], [2.0, 5.0, 10.0]]
+    mechanisms: [percent, rank, percent_judge_save, percent_sqrt, percent_log, percent_cap, dynamic_weight]
+    seasons: []

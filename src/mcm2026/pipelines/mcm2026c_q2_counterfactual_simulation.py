@@ -230,13 +230,25 @@ def _week_level_comparison(
     }
 
 
-def run(*, alpha: float | None = None) -> Q2Outputs:
+def run(
+    *,
+    alpha: float | None = None,
+    fan_source_mechanism: str | None = None,
+    count_withdraw_as_exit: bool | None = None,
+    output_path: Path | None = None,
+) -> Q2Outputs:
     paths.ensure_dirs()
 
     alpha_cfg = _get_alpha_from_config()
     alpha = alpha_cfg if alpha is None else float(alpha)
 
     fan_source_mechanism_cfg, count_withdraw_as_exit_cfg = _get_q2_params_from_config()
+    fan_source_mechanism = fan_source_mechanism_cfg if fan_source_mechanism is None else str(fan_source_mechanism)
+    if fan_source_mechanism not in {"percent", "rank"}:
+        fan_source_mechanism = "percent"
+    count_withdraw_as_exit = (
+        bool(count_withdraw_as_exit_cfg) if count_withdraw_as_exit is None else bool(count_withdraw_as_exit)
+    )
 
     weekly = _read_weekly_panel()
     q1 = _read_q1_posterior_summary()
@@ -248,8 +260,8 @@ def run(*, alpha: float | None = None) -> Q2Outputs:
             df_week,
             q1_week,
             alpha=alpha,
-            fan_source_mechanism=fan_source_mechanism_cfg,
-            count_withdraw_as_exit=count_withdraw_as_exit_cfg,
+            fan_source_mechanism=fan_source_mechanism,
+            count_withdraw_as_exit=count_withdraw_as_exit,
         )
         if row:
             rows.append(row)
@@ -269,8 +281,8 @@ def run(*, alpha: float | None = None) -> Q2Outputs:
             {
                 "season": int(season),
                 "alpha": float(alpha),
-                "fan_source_mechanism": str(fan_source_mechanism_cfg),
-                "count_withdraw_as_exit": int(bool(count_withdraw_as_exit_cfg)),
+                "fan_source_mechanism": str(fan_source_mechanism),
+                "count_withdraw_as_exit": int(bool(count_withdraw_as_exit)),
                 "n_weeks": int(len(g)),
                 "n_exit_weeks": int(len(exit_weeks)),
                 "n_single_exit_weeks": int(len(single_exit_weeks)),
@@ -303,7 +315,7 @@ def run(*, alpha: float | None = None) -> Q2Outputs:
 
     out = pd.DataFrame(season_rows)
 
-    out_fp = paths.tables_dir() / "mcm2026c_q2_mechanism_comparison.csv"
+    out_fp = (paths.tables_dir() / "mcm2026c_q2_mechanism_comparison.csv") if output_path is None else Path(output_path)
     io.write_csv(out, out_fp)
 
     return Q2Outputs(mechanism_comparison_csv=out_fp)

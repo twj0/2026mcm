@@ -34,7 +34,3 @@ MCM 2026 Problem C (DWTS) - Core Source Package
 2. 模块化解耦:
    - data/ 仅负责数据的形态转换与质量检查。
    - pipelines/ 负责将上述模块串联，完成题目要求的具体任务。
-
-3. 鲁棒性:
-   代码设计考虑了外生数据（如 Wiki Pageviews）可能存在的赛季断层，
-   在推断逻辑中内置了降级处理机制。
