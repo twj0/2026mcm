@@ -152,6 +152,9 @@ def _week_level_comparison(
 
     df_active = df_active.merge(q1, how="left", on=["season", "week", "celebrity_name"])
 
+    missing_fan_share_n = int(df_active["fan_share"].isna().sum())
+    missing_fan_share_any = int(missing_fan_share_n > 0)
+
     # Safety: if something is missing, fall back to uniform.
     if df_active["fan_share"].isna().any():
         n = len(df_active)
@@ -227,47 +230,12 @@ def _week_level_comparison(
         "mean_judge_pct_observed": _mean_judge_pct(observed),
         "mean_judge_pct_pred_percent": _mean_judge_pct(pred_percent),
         "mean_judge_pct_pred_rank": _mean_judge_pct(pred_rank),
+        "missing_fan_share_any": int(missing_fan_share_any),
+        "missing_fan_share_n": int(missing_fan_share_n),
     }
 
 
-def run(
-    *,
-    alpha: float | None = None,
-    fan_source_mechanism: str | None = None,
-    count_withdraw_as_exit: bool | None = None,
-    output_path: Path | None = None,
-) -> Q2Outputs:
-    paths.ensure_dirs()
-
-    alpha_cfg = _get_alpha_from_config()
-    alpha = alpha_cfg if alpha is None else float(alpha)
-
-    fan_source_mechanism_cfg, count_withdraw_as_exit_cfg = _get_q2_params_from_config()
-    fan_source_mechanism = fan_source_mechanism_cfg if fan_source_mechanism is None else str(fan_source_mechanism)
-    if fan_source_mechanism not in {"percent", "rank"}:
-        fan_source_mechanism = "percent"
-    count_withdraw_as_exit = (
-        bool(count_withdraw_as_exit_cfg) if count_withdraw_as_exit is None else bool(count_withdraw_as_exit)
-    )
-
-    weekly = _read_weekly_panel()
-    q1 = _read_q1_posterior_summary()
-
-    rows: list[dict] = []
-    for (season, week), df_week in weekly.groupby(["season", "week"], sort=True, dropna=False):
-        q1_week = q1.loc[(q1["season"] == season) & (q1["week"] == week)]
-        row = _week_level_comparison(
-            df_week,
-            q1_week,
-            alpha=alpha,
-            fan_source_mechanism=fan_source_mechanism,
-            count_withdraw_as_exit=count_withdraw_as_exit,
-        )
-        if row:
-            rows.append(row)
-
-    week_level = pd.DataFrame(rows)
-
+def _aggregate_season_level(week_level: pd.DataFrame, *, alpha: float, fan_source_mechanism: str, count_withdraw_as_exit: bool) -> pd.DataFrame:
     def _rate(series: pd.Series) -> float:
         s = series.dropna()
         return float(s.mean()) if not s.empty else float("nan")
@@ -310,13 +278,117 @@ def run(
                 "mean_judge_pct_pred_rank": float(exit_weeks["mean_judge_pct_pred_rank"].mean())
                 if not exit_weeks.empty
                 else float("nan"),
+                "missing_fan_share_week_rate": float(pd.to_numeric(g.get("missing_fan_share_any"), errors="coerce").fillna(0.0).mean()),
+                "missing_fan_share_total": int(pd.to_numeric(g.get("missing_fan_share_n"), errors="coerce").fillna(0.0).sum()),
             }
         )
 
-    out = pd.DataFrame(season_rows)
+    return pd.DataFrame(season_rows)
+
+
+def run(
+    *,
+    alpha: float | None = None,
+    fan_source_mechanism: str | None = None,
+    count_withdraw_as_exit: bool | None = None,
+    output_path: Path | None = None,
+) -> Q2Outputs:
+    paths.ensure_dirs()
+
+    alpha_cfg = _get_alpha_from_config()
+    alpha = alpha_cfg if alpha is None else float(alpha)
+
+    fan_source_mechanism_cfg, count_withdraw_as_exit_cfg = _get_q2_params_from_config()
+    fan_source_mechanism = fan_source_mechanism_cfg if fan_source_mechanism is None else str(fan_source_mechanism)
+    if fan_source_mechanism not in {"percent", "rank"}:
+        fan_source_mechanism = "percent"
+    count_withdraw_as_exit = (
+        bool(count_withdraw_as_exit_cfg) if count_withdraw_as_exit is None else bool(count_withdraw_as_exit)
+    )
+
+    weekly = _read_weekly_panel()
+    q1 = _read_q1_posterior_summary()
+
+    def _build_week_level(*, mech: str) -> pd.DataFrame:
+        rows: list[dict] = []
+        for (season, week), df_week in weekly.groupby(["season", "week"], sort=True, dropna=False):
+            q1_week = q1.loc[(q1["season"] == season) & (q1["week"] == week)]
+            row = _week_level_comparison(
+                df_week,
+                q1_week,
+                alpha=alpha,
+                fan_source_mechanism=str(mech),
+                count_withdraw_as_exit=count_withdraw_as_exit,
+            )
+            if row:
+                rows.append(row)
+        return pd.DataFrame(rows)
+
+    week_level_cfg = _build_week_level(mech=str(fan_source_mechanism))
+    out = _aggregate_season_level(
+        week_level_cfg,
+        alpha=float(alpha),
+        fan_source_mechanism=str(fan_source_mechanism),
+        count_withdraw_as_exit=bool(count_withdraw_as_exit),
+    )
 
     out_fp = (paths.tables_dir() / "mcm2026c_q2_mechanism_comparison.csv") if output_path is None else Path(output_path)
     io.write_csv(out, out_fp)
+
+    if output_path is None:
+        week_level_percent = _build_week_level(mech="percent")
+        week_level_rank = _build_week_level(mech="rank")
+
+        io.write_csv(week_level_percent, paths.tables_dir() / "mcm2026c_q2_week_level_comparison_percent.csv")
+        io.write_csv(week_level_rank, paths.tables_dir() / "mcm2026c_q2_week_level_comparison_rank.csv")
+
+        season_percent = _aggregate_season_level(
+            week_level_percent,
+            alpha=float(alpha),
+            fan_source_mechanism="percent",
+            count_withdraw_as_exit=bool(count_withdraw_as_exit),
+        ).rename(columns={
+            "match_rate_percent": "match_rate_percent_fan_percent",
+            "match_rate_rank": "match_rate_rank_fan_percent",
+            "match_rate_percent_judge_save": "match_rate_percent_judge_save_fan_percent",
+            "match_rate_rank_judge_save": "match_rate_rank_judge_save_fan_percent",
+            "diff_weeks_percent_vs_rank": "diff_weeks_percent_vs_rank_fan_percent",
+            "missing_fan_share_week_rate": "missing_fan_share_week_rate_fan_percent",
+            "missing_fan_share_total": "missing_fan_share_total_fan_percent",
+        })
+
+        season_rank = _aggregate_season_level(
+            week_level_rank,
+            alpha=float(alpha),
+            fan_source_mechanism="rank",
+            count_withdraw_as_exit=bool(count_withdraw_as_exit),
+        ).rename(columns={
+            "match_rate_percent": "match_rate_percent_fan_rank",
+            "match_rate_rank": "match_rate_rank_fan_rank",
+            "match_rate_percent_judge_save": "match_rate_percent_judge_save_fan_rank",
+            "match_rate_rank_judge_save": "match_rate_rank_judge_save_fan_rank",
+            "diff_weeks_percent_vs_rank": "diff_weeks_percent_vs_rank_fan_rank",
+            "missing_fan_share_week_rate": "missing_fan_share_week_rate_fan_rank",
+            "missing_fan_share_total": "missing_fan_share_total_fan_rank",
+        })
+
+        keep_base = ["season", "alpha", "count_withdraw_as_exit", "n_weeks", "n_exit_weeks", "n_single_exit_weeks", "n_multi_exit_weeks"]
+        s1 = season_percent[[c for c in season_percent.columns if c in keep_base or c.endswith("_fan_percent")]].copy()
+        s2 = season_rank[[c for c in season_rank.columns if c in keep_base or c.endswith("_fan_rank")]].copy()
+        sens = s1.merge(s2, how="outer", on=keep_base)
+
+        if "match_rate_rank_fan_percent" in sens.columns and "match_rate_rank_fan_rank" in sens.columns:
+            sens["delta_match_rate_rank"] = (
+                pd.to_numeric(sens["match_rate_rank_fan_percent"], errors="coerce")
+                - pd.to_numeric(sens["match_rate_rank_fan_rank"], errors="coerce")
+            )
+        if "match_rate_percent_judge_save_fan_percent" in sens.columns and "match_rate_percent_judge_save_fan_rank" in sens.columns:
+            sens["delta_match_rate_percent_judge_save"] = (
+                pd.to_numeric(sens["match_rate_percent_judge_save_fan_percent"], errors="coerce")
+                - pd.to_numeric(sens["match_rate_percent_judge_save_fan_rank"], errors="coerce")
+            )
+
+        io.write_csv(sens, paths.tables_dir() / "mcm2026c_q2_fan_source_sensitivity.csv")
 
     return Q2Outputs(mechanism_comparison_csv=out_fp)
 

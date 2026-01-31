@@ -366,6 +366,157 @@ def _infer_one_week(
     return out_active, summary
 
 
+def _safe_rank_corr(a: pd.Series, b: pd.Series) -> float:
+    a = pd.to_numeric(a, errors="coerce")
+    b = pd.to_numeric(b, errors="coerce")
+    mask = a.notna() & b.notna()
+    if int(mask.sum()) < 2:
+        return float("nan")
+    ra = a.loc[mask].rank(method="average")
+    rb = b.loc[mask].rank(method="average")
+    xa = ra.to_numpy(dtype=float)
+    xb = rb.to_numpy(dtype=float)
+    if xa.size < 2 or xb.size < 2:
+        return float("nan")
+    if float(np.nanstd(xa)) == 0.0 or float(np.nanstd(xb)) == 0.0:
+        return float("nan")
+    return float(np.corrcoef(xa, xb)[0, 1])
+
+
+def _q1_week_level_diagnostics(posterior: pd.DataFrame, *, alpha: float, tau: float) -> pd.DataFrame:
+    rows: list[dict] = []
+
+    for (season, week, mechanism), g in posterior.groupby(["season", "week", "mechanism"], sort=True, dropna=False):
+        gg = g.copy()
+        gg["eliminated_this_week"] = gg["eliminated_this_week"].astype(bool)
+        gg["withdrew_this_week"] = gg["withdrew_this_week"].astype(bool)
+        gg = gg.sort_values("celebrity_name", kind="mergesort")
+
+        n_active = int(len(gg))
+        obs = gg.loc[gg["eliminated_this_week"] | gg["withdrew_this_week"], "celebrity_name"].astype(str).tolist()
+        obs = sorted(obs)
+        k = int(len(obs))
+
+        fan = pd.to_numeric(gg["fan_share_mean"], errors="coerce")
+        judge_pct = pd.to_numeric(gg["judge_score_pct"], errors="coerce")
+        judge_rank = pd.to_numeric(gg["judge_rank"], errors="coerce")
+
+        if n_active > 0 and fan.isna().any():
+            fan = fan.fillna(1.0 / float(n_active))
+            s0 = float(fan.sum(skipna=True))
+            if np.isfinite(s0) and s0 > 0:
+                fan = fan / s0
+
+        fan_sum = float(fan.sum(skipna=True))
+        fan_min = float(fan.min(skipna=True)) if n_active > 0 else float("nan")
+        fan_max = float(fan.max(skipna=True)) if n_active > 0 else float("nan")
+
+        w_share = pd.to_numeric(gg["fan_share_p95"], errors="coerce") - pd.to_numeric(gg["fan_share_p05"], errors="coerce")
+        w_index = pd.to_numeric(gg["fan_vote_index_p95"], errors="coerce") - pd.to_numeric(
+            gg["fan_vote_index_p05"], errors="coerce"
+        )
+
+        width_share_mean = float(w_share.mean(skipna=True)) if not w_share.empty else float("nan")
+        width_index_mean = float(w_index.mean(skipna=True)) if not w_index.empty else float("nan")
+
+        pred = []
+        match_pred = pd.NA
+        obs_exit_prob = float("nan")
+
+        if k > 0 and n_active > 0:
+            names = gg["celebrity_name"].astype(str).to_numpy()
+            name_to_pos = {str(nm): i for i, nm in enumerate(names.tolist())}
+            obs_idx = np.array([name_to_pos[nm] for nm in obs if nm in name_to_pos], dtype=int)
+
+            if str(mechanism) == "percent":
+                score = alpha * judge_pct.astype(float).to_numpy() + (1.0 - alpha) * fan.astype(float).to_numpy()
+                order = np.lexsort((names, score))
+                pred = sorted([str(x) for x in names[order[:k]]])
+                p = _softmax_rows(((-score) / float(tau))[None, :])[0]
+                if k <= 2:
+                    obs_exit_prob = float(_prob_set_without_replacement_from_probs(p, obs_idx))
+                else:
+                    w = _stable_exp_weights((-score) / float(tau))
+                    obs_exit_prob = float(_prob_set_without_replacement(w, obs_idx))
+            else:
+                fr = (-fan.astype(float)).rank(method="average", ascending=True).to_numpy(dtype=float)
+                comb = alpha * judge_rank.astype(float).to_numpy() + (1.0 - alpha) * fr
+                order = np.lexsort((names, -comb))
+                pred = sorted([str(x) for x in names[order[:k]]])
+                p = _softmax_rows(((comb) / float(tau))[None, :])[0]
+                if k <= 2:
+                    obs_exit_prob = float(_prob_set_without_replacement_from_probs(p, obs_idx))
+                else:
+                    w = _stable_exp_weights((comb) / float(tau))
+                    obs_exit_prob = float(_prob_set_without_replacement(w, obs_idx))
+
+            match_pred = int(pred == obs) if k > 0 else pd.NA
+
+        if np.isfinite(obs_exit_prob):
+            obs_exit_prob = float(np.clip(obs_exit_prob, 0.0, 1.0))
+
+        rows.append(
+            {
+                "season": int(season),
+                "week": int(week),
+                "mechanism": str(mechanism),
+                "n_active": int(n_active),
+                "n_exit": int(k),
+                "fan_share_sum": float(fan_sum),
+                "fan_share_min": float(fan_min),
+                "fan_share_max": float(fan_max),
+                "fan_share_width_mean": float(width_share_mean),
+                "fan_index_width_mean": float(width_index_mean),
+                "judge_fan_rank_corr": _safe_rank_corr(judge_pct, fan),
+                "observed_exit": "|".join(obs) if obs else "",
+                "pred_exit": "|".join(pred) if pred else "",
+                "match_pred": match_pred,
+                "observed_exit_prob_at_posterior_mean": float(obs_exit_prob),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
+def _q1_mechanism_sensitivity(posterior: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict] = []
+    for (season, week), g in posterior.groupby(["season", "week"], sort=True, dropna=False):
+        p = g.loc[g["mechanism"].astype(str) == "percent", ["celebrity_name", "fan_share_mean"]].copy()
+        r = g.loc[g["mechanism"].astype(str) == "rank", ["celebrity_name", "fan_share_mean"]].copy()
+
+        if p.empty or r.empty:
+            continue
+
+        p = p.rename(columns={"fan_share_mean": "fan_share_percent"})
+        r = r.rename(columns={"fan_share_mean": "fan_share_rank"})
+
+        m = p.merge(r, how="outer", on=["celebrity_name"])
+        m["fan_share_percent"] = pd.to_numeric(m["fan_share_percent"], errors="coerce").fillna(0.0)
+        m["fan_share_rank"] = pd.to_numeric(m["fan_share_rank"], errors="coerce").fillna(0.0)
+
+        sp = float(m["fan_share_percent"].sum())
+        sr = float(m["fan_share_rank"].sum())
+        if sp > 0:
+            m["fan_share_percent"] = m["fan_share_percent"] / sp
+        if sr > 0:
+            m["fan_share_rank"] = m["fan_share_rank"] / sr
+
+        tv = 0.5 * float(np.abs(m["fan_share_percent"].to_numpy() - m["fan_share_rank"].to_numpy()).sum())
+        corr = _safe_rank_corr(m["fan_share_percent"], m["fan_share_rank"])
+
+        rows.append(
+            {
+                "season": int(season),
+                "week": int(week),
+                "tv_distance": float(tv),
+                "rank_corr": float(corr),
+                "n_contestants": int(len(m)),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
 def run(
     *,
     alpha: float | None = None,
@@ -419,6 +570,13 @@ def run(
 
     io.write_csv(posterior, out_pred)
     io.write_csv(uncertainty, out_unc)
+
+    if output_posterior_path is None and output_uncertainty_path is None:
+        diag = _q1_week_level_diagnostics(posterior, alpha=float(alpha), tau=float(tau))
+        io.write_csv(diag, paths.tables_dir() / "mcm2026c_q1_error_diagnostics_week.csv")
+
+        sens = _q1_mechanism_sensitivity(posterior)
+        io.write_csv(sens, paths.tables_dir() / "mcm2026c_q1_mechanism_sensitivity_week.csv")
 
     return Q1Outputs(posterior_summary_csv=out_pred, uncertainty_summary_csv=out_unc)
 

@@ -297,6 +297,107 @@ def _extract_fixed_effect_table(
     return pd.DataFrame(rows)
 
 
+def _q3_dataset_diagnostics(df: pd.DataFrame, *, fan_source_mechanism: str) -> pd.DataFrame:
+    out = df.copy()
+    out["fan_source_mechanism"] = str(fan_source_mechanism)
+
+    cols = [
+        "season",
+        "celebrity_name",
+        "pro_name",
+        "industry",
+        "judge_score_pct_mean",
+        "n_weeks_active",
+        "fan_vote_index_mean",
+        "fan_vote_index_sd_mean",
+        "n_weeks_q1",
+    ]
+    cols_present = [c for c in cols if c in out.columns]
+    out = out[cols_present].copy()
+
+    for c in ["judge_score_pct_mean", "fan_vote_index_mean", "fan_vote_index_sd_mean"]:
+        if c in out.columns:
+            out[c] = pd.to_numeric(out[c], errors="coerce")
+    for c in ["n_weeks_active", "n_weeks_q1", "season"]:
+        if c in out.columns:
+            out[c] = pd.to_numeric(out[c], errors="coerce")
+
+    return out
+
+
+def _q3_refit_stability(fan_all: pd.DataFrame) -> pd.DataFrame:
+    if fan_all.empty:
+        return pd.DataFrame()
+
+    df = fan_all.copy()
+    df["estimate"] = pd.to_numeric(df["estimate"], errors="coerce")
+
+    def _sign_consistency(s: pd.Series) -> float:
+        v = pd.to_numeric(s, errors="coerce")
+        v = v[np.isfinite(v)]
+        if len(v) == 0:
+            return float("nan")
+        med = float(np.median(v.to_numpy(dtype=float)))
+        if med == 0:
+            return float(np.mean(v.to_numpy(dtype=float) == 0))
+        return float(np.mean(np.sign(v.to_numpy(dtype=float)) == np.sign(med)))
+
+    grp = df.groupby(["outcome", "model", "term"], sort=True, dropna=False)
+    out = (
+        grp["estimate"]
+        .agg(
+            n_draws=lambda s: int(pd.to_numeric(s, errors="coerce").notna().sum()),
+            estimate_median=lambda s: float(np.nanmedian(pd.to_numeric(s, errors="coerce").to_numpy(dtype=float))),
+            estimate_sd=lambda s: float(np.nanstd(pd.to_numeric(s, errors="coerce").to_numpy(dtype=float), ddof=1))
+            if int(pd.to_numeric(s, errors="coerce").notna().sum()) > 1
+            else float("nan"),
+            q05=lambda s: float(np.nanquantile(pd.to_numeric(s, errors="coerce").to_numpy(dtype=float), 0.05)),
+            q95=lambda s: float(np.nanquantile(pd.to_numeric(s, errors="coerce").to_numpy(dtype=float), 0.95)),
+            sign_consistency=_sign_consistency,
+        )
+        .reset_index()
+    )
+    out["iqr"] = out["q95"] - out["q05"]
+    return out
+
+
+def _q3_quick_mechanism_sensitivity(
+    weekly: pd.DataFrame,
+    season_features: pd.DataFrame,
+    q1_post: pd.DataFrame,
+    *,
+    seed: int,
+) -> pd.DataFrame:
+    rng = np.random.default_rng(int(seed))
+
+    rows: list[dict] = []
+    for fan_source_mechanism in ["percent", "rank"]:
+        df = _build_season_level_dataset(
+            weekly,
+            season_features,
+            q1_post,
+            fan_source_mechanism=str(fan_source_mechanism),
+        )
+
+        model_kind, res, fe_names = _fit_mixedlm_or_ols(df, y_col="fan_vote_index_mean", rng=rng, force="ols")
+        tab = _extract_fixed_effect_table(
+            outcome="fan_vote_index_mean",
+            model_kind=model_kind,
+            res=res,
+            fe_names=fe_names,
+            n_obs=len(df),
+            n_refits=1,
+            suffix=f"fan_line_quick_ols_{fan_source_mechanism}",
+        )
+        tab["fan_source_mechanism"] = str(fan_source_mechanism)
+        rows.append(tab)
+
+    if not rows:
+        return pd.DataFrame()
+    out = pd.concat(rows, ignore_index=True)
+    return out
+
+
 def run(
     *,
     n_refits: int | None = None,
@@ -387,6 +488,18 @@ def run(
 
     out_fp = (paths.tables_dir() / "mcm2026c_q3_impact_analysis_coeffs.csv") if output_path is None else Path(output_path)
     io.write_csv(out, out_fp)
+
+    if output_path is None:
+        diag = _q3_dataset_diagnostics(df, fan_source_mechanism=str(fan_source_mechanism))
+        io.write_csv(diag, paths.tables_dir() / "mcm2026c_q3_dataset_diagnostics.csv")
+
+        io.write_csv(fan_all, paths.tables_dir() / "mcm2026c_q3_fan_refit_coeff_draws.csv")
+
+        stab = _q3_refit_stability(fan_all)
+        io.write_csv(stab, paths.tables_dir() / "mcm2026c_q3_fan_refit_stability.csv")
+
+        quick = _q3_quick_mechanism_sensitivity(weekly, season_features, q1_post, seed=int(seed))
+        io.write_csv(quick, paths.tables_dir() / "mcm2026c_q3_fan_source_sensitivity_quick_ols.csv")
 
     return Q3Outputs(impact_coeffs_csv=out_fp)
 
