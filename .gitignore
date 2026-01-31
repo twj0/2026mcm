@@ -2,7 +2,7 @@
 *.swp
 *.swo
 *.swn
-examples/
+examples/*
 archive-contest/
 
 
@@ -30,3 +30,4 @@ htmlcov/
 
 
 .ace-tool/
+
