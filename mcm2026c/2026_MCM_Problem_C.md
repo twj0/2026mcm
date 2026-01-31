@@ -1,12 +1,5 @@
-以下是根据您提供的PDF图片及OCR内容，严格按照原文档排版格式转化而成的Markdown文档：
-
----
-
 **2026 MCM**
 **Problem C: Data With The Stars**
-
-![Disco Ball Image](https://replicate.delivery/yhqm/f1N59X7WfW3vX69eS0eX9eS0eX9eS0eX9eS0eX9eS0eX9eS0A/output.png)
-*(注：此处对应原文档中的迪斯科舞球图片)*
 
 Dancing with the Stars (DWTS) is the American version of an international television franchise based on the British show “Strictly Come Dancing” (“Come Dancing” originally). Versions of the show have appeared in Albania, Argentina, Australia, China, France, India, and many other countries. The U.S. version, the focus of this problem, has completed 34 seasons.
 

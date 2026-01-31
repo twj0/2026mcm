@@ -1,0 +1,1 @@
+# MCM 2026 Problem C Visualization Package

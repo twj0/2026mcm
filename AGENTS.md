@@ -49,9 +49,6 @@ The project emphasizes determinism and transparency: one command regenerates all
 │  ├─ fetch_dwts_wikipedia_pageviews.py
 │  └─ fetch_us_state_population_2020.py
 │
-├─ tests/                      # Minimal smoke tests
-│  └─ test_smoke.py
-│
 ├─ docs/
 │  ├─ project_structure.md     # Chinese overview of layout & artifacts
 │  ├─ conventions.md           # Naming & pipeline conventions
