@@ -77,14 +77,69 @@ def create_q4_mechanism_tradeoff_scatter(
             'robust_fail_rate': 'mean'
         }).reset_index()
 
+        has_fan_se = 'fan_vs_uniform_contrast_se' in data_subset.columns
+        has_tpi_boot = 'tpi_boot_p025' in data_subset.columns and 'tpi_boot_p975' in data_subset.columns
+        has_tpi_std = 'tpi_std' in data_subset.columns and 'tpi_n' in data_subset.columns
+
+        fan_xerr: dict[str, float] = {}
+        tpi_yerr: dict[str, float] = {}
+        if has_fan_se:
+            for mech in mechanisms:
+                s = data_subset.loc[data_subset['mechanism'] == mech, 'fan_vs_uniform_contrast_se']
+                s = s[np.isfinite(s)]
+                fan_xerr[mech] = float(1.96 * np.sqrt(np.mean(np.square(s)))) if len(s) else 0.0
+
+        if has_tpi_boot:
+            for mech in mechanisms:
+                lo = data_subset.loc[data_subset['mechanism'] == mech, 'tpi_boot_p025']
+                hi = data_subset.loc[data_subset['mechanism'] == mech, 'tpi_boot_p975']
+                lo = lo[np.isfinite(lo)]
+                hi = hi[np.isfinite(hi)]
+                if len(lo) and len(hi):
+                    se = np.mean((hi.to_numpy() - lo.to_numpy()) / (2.0 * 1.96))
+                    tpi_yerr[mech] = float(1.96 * se)
+                else:
+                    tpi_yerr[mech] = 0.0
+        elif has_tpi_std:
+            for mech in mechanisms:
+                std = data_subset.loc[data_subset['mechanism'] == mech, 'tpi_std']
+                n = data_subset.loc[data_subset['mechanism'] == mech, 'tpi_n']
+                std = std[np.isfinite(std)]
+                n = n[np.isfinite(n)]
+                if len(std) and len(n):
+                    se = np.mean(std.to_numpy() / np.sqrt(np.maximum(n.to_numpy(), 1.0)))
+                    tpi_yerr[mech] = float(1.96 * se)
+                else:
+                    tpi_yerr[mech] = 0.0
+
         # Create scatter plot with size representing robustness
         for _, row in mechanism_avg.iterrows():
             mech = row['mechanism']
             size = (1 - row['robust_fail_rate']) * 300 + 50  # Higher robustness = larger point
 
-            ax.scatter(row['fan_vs_uniform_contrast'], row['tpi_season_avg'], 
-                      s=size, c=colors.get(mech, 'gray'), alpha=0.7, 
-                      label=mech if i == 0 else "")  # Only label in first subplot
+            ax.scatter(
+                row['fan_vs_uniform_contrast'],
+                row['tpi_season_avg'],
+                s=size,
+                c=colors.get(mech, 'gray'),
+                alpha=0.7,
+                label=mech if i == 0 else "",
+            )  # Only label in first subplot
+
+            xerr = fan_xerr.get(mech, 0.0)
+            yerr = tpi_yerr.get(mech, 0.0)
+            if (xerr and np.isfinite(xerr)) or (yerr and np.isfinite(yerr)):
+                ax.errorbar(
+                    row['fan_vs_uniform_contrast'],
+                    row['tpi_season_avg'],
+                    xerr=xerr if xerr and np.isfinite(xerr) else None,
+                    yerr=yerr if yerr and np.isfinite(yerr) else None,
+                    fmt='none',
+                    ecolor=colors.get(mech, 'gray'),
+                    elinewidth=1,
+                    alpha=0.35,
+                    capsize=2,
+                )
 
             # Add mechanism labels
             ax.annotate(mech.replace('_', '\n'), 
@@ -138,22 +193,37 @@ def create_q4_robustness_curves(
     for mech in mechanisms:
         mech_data = metrics_data[metrics_data['mechanism'] == mech]
         fail_rates = []
-        fail_rate_stds = []
+        fail_rate_band = []
+
+        has_mc_se = 'robust_fail_rate_se' in mech_data.columns
 
         for outlier in outlier_values:
             subset = mech_data[mech_data['outlier_mult'] == outlier]
             if len(subset) > 0:
-                fail_rates.append(subset['robust_fail_rate'].mean())
-                fail_rate_stds.append(subset['robust_fail_rate'].std())
+                m = float(subset['robust_fail_rate'].mean())
+                fail_rates.append(m)
+
+                if has_mc_se and 'robust_fail_rate_se' in subset.columns:
+                    se_mc = subset['robust_fail_rate_se']
+                    se_mc = se_mc[np.isfinite(se_mc)]
+                    se_mc_agg = float(np.sqrt(np.mean(np.square(se_mc)))) if len(se_mc) else 0.0
+
+                    n = int(subset['robust_fail_rate'].notna().sum())
+                    se_between = float(subset['robust_fail_rate'].std(ddof=1) / np.sqrt(n)) if n > 1 else 0.0
+
+                    band = float(1.96 * np.sqrt(se_between * se_between + se_mc_agg * se_mc_agg))
+                    fail_rate_band.append(band)
+                else:
+                    fail_rate_band.append(float(subset['robust_fail_rate'].std()))
             else:
                 fail_rates.append(0)
-                fail_rate_stds.append(0)
+                fail_rate_band.append(0)
 
         ax1.plot(outlier_values, fail_rates, 'o-', label=mech, 
                 linewidth=2, markersize=8, color=colors.get(mech, 'gray'))
         ax1.fill_between(outlier_values, 
-                        np.array(fail_rates) - np.array(fail_rate_stds),
-                        np.array(fail_rates) + np.array(fail_rate_stds),
+                        np.array(fail_rates) - np.array(fail_rate_band),
+                        np.array(fail_rates) + np.array(fail_rate_band),
                         alpha=0.2, color=colors.get(mech, 'gray'))
 
     ax1.set_xlabel('Stress test intensity (outlier_mult)')
@@ -586,6 +656,31 @@ def generate_all_q4_visualizations(
     # Load data
     try:
         metrics_data = pd.read_csv(data_dir / 'outputs' / 'tables' / 'mcm2026c_q4_new_system_metrics.csv')
+
+        attack_cols = [
+            'robust_fail_rate_fixed',
+            'robust_fail_rate_random_bottom_k',
+            'robust_fail_rate_add',
+            'robust_fail_rate_redistribute',
+        ]
+        present_attack_cols = [c for c in attack_cols if c in metrics_data.columns]
+        if present_attack_cols:
+            has_any = metrics_data[present_attack_cols].notna().any().any()
+            if bool(has_any):
+                df_tmp = metrics_data.copy()
+                cols = ['robust_fail_rate'] + present_attack_cols
+                v = df_tmp[cols].apply(pd.to_numeric, errors='coerce')
+                df_tmp['robust_fail_rate'] = v.max(axis=1, skipna=True)
+
+                if 'n_sims' in df_tmp.columns:
+                    p = pd.to_numeric(df_tmp['robust_fail_rate'], errors='coerce')
+                    n = pd.to_numeric(df_tmp['n_sims'], errors='coerce')
+                    ok = (n > 0) & p.notna()
+                    se = pd.Series(np.nan, index=df_tmp.index, dtype=float)
+                    se.loc[ok] = np.sqrt(p.loc[ok] * (1.0 - p.loc[ok]) / n.loc[ok])
+                    df_tmp['robust_fail_rate_se'] = se
+
+                metrics_data = df_tmp
 
         print(f"✅ Loaded data: {len(metrics_data)} metrics records")
 

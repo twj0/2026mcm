@@ -143,6 +143,54 @@ dwts:
     # 就像测试桥梁能承受多大重量一样
     outlier_mults: [2.0, 5.0, 10.0]
 
+    # 不确定性量化（让结果“更科学”）
+    #
+    # bootstrap_b: 对 TPI 的均值做 bootstrap 置信区间（越大越稳，但越慢）
+    # - 200：论文/答辩够用（推荐默认）
+    # - 0：关闭 bootstrap（只保留点估计与分位数）
+    bootstrap_b: 200
+
+    # Q1 不确定性传播强度（灵敏度）
+    #
+    # 我们在 Q4 中会用 (fan_share_mean, p05, p95) 构造 lognormal 抽样。
+    # sigma_scales 用来整体放大/缩小该 lognormal 的 sigma，从而测试：
+    # - Q1 更不确定（>1）时，Q4 结论是否稳健
+    # - Q1 更确定（<1）时，Q4 指标是否收敛
+    # 默认只跑 [1.0]（不改变现有主线行为）；需要敏感性时再加 [0.5, 1.0, 2.0]
+    sigma_scales: [1.0]
+
+    # 鲁棒性扩展攻击（默认关闭，避免主线变慢）
+    #
+    # 说明：主线已有 outlier_mults 的“乘法放大”压力测试（默认攻击对象=当周评委最低分）。
+    # 这里提供更丰富的攻击策略，用于写论文/答辩时展示“我们做了系统性的鲁棒性检验”。
+    #
+    # 重要：
+    # - enabled=false 时，主线行为不变；主表中新增列会是 NaN（不影响旧图/旧代码）。
+    # - enabled=true 时，会在主表中追加多组 robust_fail_rate_* 列（不增加行，但会变宽）。
+    robustness_attacks:
+      enabled: false
+
+      # 启用哪些策略（可选项）：
+      # - fixed: 固定选手攻击（例如争议案例）
+      # - random_bottom_k: 从当周评委分最低的 k 人中随机选一个攻击
+      # - add: 加法扰动（给目标选手增加固定 fan share 再归一化）
+      # - redistribute: 比例重分配（从其他人按比例抽走一部分转给目标选手）
+      strategies: [fixed, random_bottom_k, add, redistribute]
+
+      # fixed 策略：指定选手姓名（必须与数据中的 celebrity_name 完全一致）；留空则忽略 fixed。
+      fixed_contestant: ""
+
+      # random_bottom_k 策略：k 的大小（>=2）。
+      bottom_k: 3
+
+      # add 策略：每次攻击给目标选手增加的 fan share 基础增量。
+      # 实际增量会随 outlier_mult 强度线性放大：delta_effective = add_delta * (outlier_mult - 1)
+      add_delta: 0.02
+
+      # redistribute 策略：从其他选手转移给目标选手的比例（0~0.95）。
+      # 实际转移强度会随 outlier_mult 放大：frac_effective = redistribute_frac * (outlier_mult - 1)
+      redistribute_frac: 0.25
+
     # 高级选项（通常不用改，注释掉就行）
     # 
     # 如果你想测试不同的alpha值，可以取消下面的注释：

@@ -4,31 +4,19 @@ from __future__ import annotations
 # Ref: docs/spec/architecture.md
 
 """
-Q4: New Voting System Design and Evaluation
+Q4：新投票系统设计与评估
 
-IMPORTANT MODELING ASSUMPTIONS AND LIMITATIONS:
-1. This module evaluates voting mechanisms within the Q1-identifiable fan strength space.
-   It does NOT predict real-world champions but assesses mechanism trade-offs given Q1 constraints.
-
-2. Q1 fan strength inference is based on weekly elimination constraints + judge scores.
-   It may underestimate "external mobilization" cases (e.g., Bobby Bones S27) where 
-   organized fan campaigns exceed what weekly constraints can identify.
-
-3. TPI (Technical Protection Index) now uses season-average judge percentile for robustness,
-   rather than final-week ranking which has small sample size issues.
-
-4. Fan vs Uniform Contrast measures difference between realistic fan distribution and 
-   uniform baseline - this is a controlled experiment metric, not direct "fan influence".
-
-5. Robustness testing uses multiple outlier multipliers (2x, 5x, 10x) as stress tests,
-   not realistic probability estimates.
-
-For extreme cases like Bobby Bones, the framework identifies them as "identifiability 
-limitations" requiring external information, rather than model failures.
+重要的建模假设和限制：
+1. 该模块评估 Q1 可识别粉丝强度空间内的投票机制。它不会预测现实世界的冠军，而是评估给定第一季度约束的机制权衡。
+2、Q1粉丝实力推算基于周淘汰限制+评委评分。它可能会低估“外部动员”案例（例如，Bobby Bones S27），其中有组织的粉丝活动超出了每周限制所能识别的范围。
+3. TPI（技术保护指数）现在使用季节平均判断百分位来保证稳健性，而不是最后一周的排名，后者存在样本量较小的问题。
+4. 扇形与均匀对比度衡量实际扇形分布与均匀分布之间的差异统一基线 - 这是一个受控实验指标，而不是直接的“粉丝影响”。
+5. 稳健性测试使用多个离群值乘数（2x、5x、10x）作为压力测试，不现实的概率估计。对于像 Bobby Bones 这样的极端情况，该框架将它们识别为“可识别性”限制”需要外部信息，而不是模型失败。
 """
 
 from dataclasses import dataclass
 from pathlib import Path
+import zlib
 
 import numpy as np
 import pandas as pd
@@ -64,7 +52,7 @@ def _get_alpha_from_config() -> float:
     return float(node.get("alpha", 0.5))
 
 
-def _get_q4_params_from_config() -> tuple[str, int, int, list[float]]:
+def _get_q4_params_from_config() -> tuple[str, int, int, list[float], int]:
     cfg = _load_config()
     node = cfg.get("dwts", {}).get("q4", {}) if isinstance(cfg, dict) else {}
 
@@ -89,7 +77,68 @@ def _get_q4_params_from_config() -> tuple[str, int, int, list[float]]:
     if not outlier_mults:
         outlier_mults = [2.0, 5.0, 10.0]
 
-    return mech, n_sims, seed, outlier_mults
+    bootstrap_b = int(node.get("bootstrap_b", 200))
+    if bootstrap_b < 0:
+        bootstrap_b = 0
+
+    return mech, n_sims, seed, outlier_mults, bootstrap_b
+
+
+def _get_q4_sigma_scales_from_config() -> list[float] | None:
+    cfg = _load_config()
+    node = cfg.get("dwts", {}).get("q4", {}) if isinstance(cfg, dict) else {}
+
+    raw = node.get("sigma_scales", None)
+    if not isinstance(raw, (list, tuple)):
+        return None
+
+    out: list[float] = []
+    for x in raw:
+        try:
+            v = float(x)
+        except Exception:
+            continue
+        if v > 0:
+            out.append(v)
+    return out if out else None
+
+
+def _get_q4_robustness_attacks_from_config() -> tuple[bool, list[str], str | None, int, float, float]:
+    cfg = _load_config()
+    node = cfg.get("dwts", {}).get("q4", {}) if isinstance(cfg, dict) else {}
+    raw = node.get("robustness_attacks", None)
+    if not isinstance(raw, dict):
+        return False, [], None, 3, 0.0, 0.0
+
+    enabled = bool(raw.get("enabled", False))
+
+    strategies_raw = raw.get("strategies", [])
+    strategies: list[str] = []
+    if isinstance(strategies_raw, (list, tuple)):
+        for x in strategies_raw:
+            s = str(x).strip()
+            if s:
+                strategies.append(s)
+
+    fixed_contestant_raw = raw.get("fixed_contestant", "")
+    fixed_contestant = str(fixed_contestant_raw).strip() if fixed_contestant_raw is not None else ""
+    fixed_contestant_out = fixed_contestant if fixed_contestant else None
+
+    bottom_k = int(raw.get("bottom_k", 3))
+    if bottom_k < 2:
+        bottom_k = 2
+
+    add_delta = float(raw.get("add_delta", 0.0))
+    if not np.isfinite(add_delta) or add_delta < 0:
+        add_delta = 0.0
+
+    redistribute_frac = float(raw.get("redistribute_frac", 0.0))
+    if not np.isfinite(redistribute_frac) or redistribute_frac < 0:
+        redistribute_frac = 0.0
+    if redistribute_frac > 0.95:
+        redistribute_frac = 0.95
+
+    return enabled, strategies, fixed_contestant_out, bottom_k, add_delta, redistribute_frac
 
 
 def _get_q4_optional_grids_from_config() -> tuple[list[float] | None, list[str] | None, list[int] | None]:
@@ -186,6 +235,7 @@ def _sample_fan_share(
     rng: np.random.Generator,
     *,
     eps: float = 1e-9,
+    sigma_scale: float = 1.0,
 ) -> np.ndarray:
     # Sample per-contestant positive weights via log-normal using mean and (p05,p95) width.
     # Then renormalize to a simplex.
@@ -232,6 +282,14 @@ def _sample_fan_share(
         sigma_ok = (hi - lo) / (2.0 * z)
         sigma_ok = np.clip(sigma_ok, 0.0, 5.0)
         sigma[ok] = sigma_ok
+
+    try:
+        sigma_scale = float(sigma_scale)
+    except Exception:
+        sigma_scale = 1.0
+    if not np.isfinite(sigma_scale) or sigma_scale <= 0:
+        sigma_scale = 1.0
+    sigma = sigma * sigma_scale
 
     w = np.exp(mu + sigma * rng.normal(0.0, 1.0, size=n))
     w = np.where(np.isfinite(w) & (w > 0), w, 0.0)
@@ -411,9 +469,17 @@ def _simulate_one(
     *,
     mechanism: str,
     alpha: float,
+    sigma_scale: float = 1.0,
     rng: np.random.Generator,
     use_uniform_fans: bool = False,
     outlier_mult: float | None = None,
+    outlier_target_mode: str = "worst_judge",
+    outlier_fixed_name: str | None = None,
+    outlier_bottom_k: int = 3,
+    outlier_rng: np.random.Generator | None = None,
+    outlier_attack_mode: str = "mult",
+    outlier_add_delta: float = 0.0,
+    outlier_redistribute_frac: float = 0.0,
 ) -> str:
     active: set[str] = set()
 
@@ -460,18 +526,58 @@ def _simulate_one(
         if use_uniform_fans:
             pf = np.ones(len(df_active), dtype=float) / float(len(df_active))
         else:
-            pf = _sample_fan_share(df_active, rng)
+            pf = _sample_fan_share(df_active, rng, sigma_scale=sigma_scale)
 
         if outlier_mult is not None and len(df_active) >= 2:
-            # Inflate the fan share for the lowest judge-score contestant.
+            names = df_active["celebrity_name"].astype(str).to_numpy()
             pj = pd.to_numeric(df_active["judge_score_pct"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
             pj = np.where(np.isfinite(pj), pj, 0.0)
-            worst = int(np.lexsort((df_active["celebrity_name"].astype(str).to_numpy(), pj))[0])
-            pf = pf.copy()
-            pf[worst] = pf[worst] * float(outlier_mult)
-            s = float(pf.sum())
-            if s > 0:
-                pf = pf / s
+
+            target: int | None = None
+            mode = str(outlier_target_mode)
+            if mode == "fixed" and outlier_fixed_name is not None:
+                hits = np.flatnonzero(names == str(outlier_fixed_name))
+                if hits.size > 0:
+                    target = int(hits[0])
+            elif mode == "random_bottom_k":
+                k = int(outlier_bottom_k)
+                if k < 2:
+                    k = 2
+                k = min(k, int(len(names)))
+                order = np.lexsort((names, pj))
+                pool = order[:k]
+                rng_sel = outlier_rng if outlier_rng is not None else rng
+                if pool.size > 0:
+                    target = int(rng_sel.choice(pool))
+            else:
+                target = int(np.lexsort((names, pj))[0])
+
+            if target is not None:
+                pf = pf.copy()
+                mode_a = str(outlier_attack_mode)
+
+                if mode_a == "add":
+                    scale = max(float(outlier_mult) - 1.0, 0.0)
+                    pf[target] = pf[target] + float(outlier_add_delta) * scale
+                elif mode_a == "redistribute":
+                    scale = max(float(outlier_mult) - 1.0, 0.0)
+                    frac = float(outlier_redistribute_frac) * scale
+                    if frac > 0.95:
+                        frac = 0.95
+                    if frac > 0:
+                        pf_other = 1.0 - float(pf[target])
+                        pf[target] = float(pf[target]) + frac * pf_other
+                        if pf_other > 0:
+                            keep = 1.0 - frac
+                            for j in range(len(pf)):
+                                if j != target:
+                                    pf[j] = pf[j] * keep
+                else:
+                    pf[target] = pf[target] * float(outlier_mult)
+
+                s = float(pf.sum())
+                if s > 0:
+                    pf = pf / s
 
         eliminated = _select_eliminated(
             df_active,
@@ -513,19 +619,84 @@ def _simulate_one(
     if use_uniform_fans:
         pf_final = np.ones(len(dff), dtype=float) / float(len(dff))
     else:
-        pf_final = _sample_fan_share(dff, rng)
+        pf_final = _sample_fan_share(dff, rng, sigma_scale=sigma_scale)
 
     if outlier_mult is not None and len(dff) >= 2:
+        names_f = dff["celebrity_name"].astype(str).to_numpy()
         pj = pd.to_numeric(dff["judge_score_pct"], errors="coerce").fillna(0.0).to_numpy(dtype=float)
         pj = np.where(np.isfinite(pj), pj, 0.0)
-        worst = int(np.lexsort((dff["celebrity_name"].astype(str).to_numpy(), pj))[0])
-        pf_final = pf_final.copy()
-        pf_final[worst] = pf_final[worst] * float(outlier_mult)
-        s = float(pf_final.sum())
-        if s > 0:
-            pf_final = pf_final / s
+
+        target_f: int | None = None
+        mode_f = str(outlier_target_mode)
+        if mode_f == "fixed" and outlier_fixed_name is not None:
+            hits = np.flatnonzero(names_f == str(outlier_fixed_name))
+            if hits.size > 0:
+                target_f = int(hits[0])
+        elif mode_f == "random_bottom_k":
+            k = int(outlier_bottom_k)
+            if k < 2:
+                k = 2
+            k = min(k, int(len(names_f)))
+            order = np.lexsort((names_f, pj))
+            pool = order[:k]
+            rng_sel = outlier_rng if outlier_rng is not None else rng
+            if pool.size > 0:
+                target_f = int(rng_sel.choice(pool))
+        else:
+            target_f = int(np.lexsort((names_f, pj))[0])
+
+        if target_f is not None:
+            pf_final = pf_final.copy()
+            mode_af = str(outlier_attack_mode)
+
+            if mode_af == "add":
+                scale = max(float(outlier_mult) - 1.0, 0.0)
+                pf_final[target_f] = pf_final[target_f] + float(outlier_add_delta) * scale
+            elif mode_af == "redistribute":
+                scale = max(float(outlier_mult) - 1.0, 0.0)
+                frac = float(outlier_redistribute_frac) * scale
+                if frac > 0.95:
+                    frac = 0.95
+                if frac > 0:
+                    pf_other = 1.0 - float(pf_final[target_f])
+                    pf_final[target_f] = float(pf_final[target_f]) + frac * pf_other
+                    if pf_other > 0:
+                        keep = 1.0 - frac
+                        for j in range(len(pf_final)):
+                            if j != target_f:
+                                pf_final[j] = pf_final[j] * keep
+            else:
+                pf_final[target_f] = pf_final[target_f] * float(outlier_mult)
+
+            s = float(pf_final.sum())
+            if s > 0:
+                pf_final = pf_final / s
 
     return _select_champion(dff, pf_final, mechanism=mechanism, alpha=alpha)
+
+
+def _mix_seed(*parts: object) -> int:
+    payload = "|".join([str(x) for x in parts]).encode("utf-8")
+    return int(zlib.crc32(payload) & 0x7FFFFFFF)
+
+
+def _bootstrap_mean_ci(
+    values: np.ndarray,
+    rng: np.random.Generator,
+    *,
+    alpha: float = 0.05,
+    b: int = 200,
+) -> tuple[float, float]:
+    v = np.asarray(values, dtype=float)
+    v = v[np.isfinite(v)]
+    n = int(v.size)
+    if n <= 1 or b <= 0:
+        return float("nan"), float("nan")
+
+    idx = rng.integers(0, n, size=(int(b), n))
+    means = np.mean(v[idx], axis=1)
+    lo, hi = np.quantile(means, [alpha / 2.0, 1.0 - alpha / 2.0])
+    return float(lo), float(hi)
 
 
 def run(
@@ -534,6 +705,8 @@ def run(
     seed: int | None = None,
     alpha: float | None = None,
     outlier_mults: list[float] | None = None,
+    bootstrap_b: int | None = None,
+    sigma_scales: list[float] | None = None,
     fan_source_mechanism: str | None = None,
     mechanisms: list[str] | None = None,
     seasons: list[int] | None = None,
@@ -544,7 +717,7 @@ def run(
     alpha_cfg = _get_alpha_from_config()
     alpha = alpha_cfg if alpha is None else float(alpha)
 
-    mech_cfg, n_sims_cfg, seed_cfg, outlier_mults_cfg = _get_q4_params_from_config()
+    mech_cfg, n_sims_cfg, seed_cfg, outlier_mults_cfg, bootstrap_b_cfg = _get_q4_params_from_config()
     fan_source_mechanism = mech_cfg if fan_source_mechanism is None else str(fan_source_mechanism)
     if fan_source_mechanism not in {"percent", "rank"}:
         fan_source_mechanism = "percent"
@@ -558,6 +731,26 @@ def run(
     # Default outlier multipliers for robustness stress testing
     if outlier_mults is None:
         outlier_mults = list(outlier_mults_cfg)
+
+    bootstrap_b = int(bootstrap_b_cfg) if bootstrap_b is None else int(bootstrap_b)
+    if bootstrap_b < 0:
+        bootstrap_b = int(bootstrap_b_cfg)
+
+    sigma_scales_cfg = _get_q4_sigma_scales_from_config()
+    if sigma_scales is None:
+        sigma_scales = [1.0] if sigma_scales_cfg is None else list(sigma_scales_cfg)
+    sigma_scales = [float(x) for x in sigma_scales if np.isfinite(float(x)) and float(x) > 0]
+    if not sigma_scales:
+        sigma_scales = [1.0]
+
+    (
+        attacks_enabled,
+        attack_strategies,
+        attack_fixed_name,
+        attack_bottom_k,
+        attack_add_delta,
+        attack_redistribute_frac,
+    ) = _get_q4_robustness_attacks_from_config()
 
     alpha_grid_cfg, mechanisms_cfg, seasons_cfg = _get_q4_optional_grids_from_config()
     if mechanisms is not None:
@@ -586,7 +779,7 @@ def run(
     n_seasons = int(df["season"].nunique())
     print(
         "Q4: evaluating design space | "
-        f"seasons={n_seasons} | n_sims={int(n_sims)} | outlier_mults={list(outlier_mults)}"
+        f"seasons={n_seasons} | n_sims={int(n_sims)} | outlier_mults={list(outlier_mults)} | bootstrap_b={int(bootstrap_b)}"
     )
 
     allowed_mechs = {
@@ -654,87 +847,298 @@ def run(
         base_seeds = [int(rng_master.integers(0, 2**31 - 1)) for _ in range(int(n_sims))]
 
         for alpha_eval in alphas:
-            for mech in mechanisms:
-                champ_counts: dict[str, int] = {}
-                tpi_vals: list[float] = []
-                fan_vs_uniform_vals: list[int] = []
-
-                for base_seed in base_seeds:
-                    rng_base = np.random.default_rng(base_seed)
-                    rng_u = np.random.default_rng(base_seed + 1)
-
-                    champ = _simulate_one(
-                        season_week_map,
-                        season_weeks,
-                        mechanism=mech,
-                        alpha=float(alpha_eval),
-                        rng=rng_base,
-                        use_uniform_fans=False,
-                        outlier_mult=None,
-                    )
-
-                    champ_u = _simulate_one(
-                        season_week_map,
-                        season_weeks,
-                        mechanism=mech,
-                        alpha=float(alpha_eval),
-                        rng=rng_u,
-                        use_uniform_fans=True,
-                        outlier_mult=None,
-                    )
-
-                    champ_counts[champ] = champ_counts.get(champ, 0) + 1
-                    fan_vs_uniform_vals.append(int(champ != champ_u))
-
-                    if champ:
-                        season_tpi = _calculate_season_tpi(champ, season_week_map, season_weeks)
-                        if not np.isnan(season_tpi):
-                            tpi_vals.append(season_tpi)
-
-                champ_mode = max(champ_counts.items(), key=lambda kv: kv[1])[0] if champ_counts else ""
-                champ_mode_prob = float(champ_counts.get(champ_mode, 0) / float(n_sims)) if n_sims > 0 else float("nan")
-                champ_entropy = _safe_entropy(champ_counts)
-                tpi_season_avg = float(np.mean(tpi_vals)) if tpi_vals else float("nan")
-                fan_vs_uniform_contrast = float(np.mean(fan_vs_uniform_vals)) if fan_vs_uniform_vals else float("nan")
-
-                for outlier_mult in outlier_mults:
-                    robust_fail_vals: list[int] = []
+            for sigma_scale in sigma_scales:
+                for mech in mechanisms:
+                    champ_counts: dict[str, int] = {}
+                    tpi_vals: list[float] = []
+                    fan_vs_uniform_vals: list[int] = []
 
                     for base_seed in base_seeds:
-                        rng_out = np.random.default_rng(base_seed + 2)
-                        champ_out = _simulate_one(
+                        rng_base = np.random.default_rng(base_seed)
+                        rng_u = np.random.default_rng(base_seed + 1)
+
+                        champ = _simulate_one(
                             season_week_map,
                             season_weeks,
                             mechanism=mech,
                             alpha=float(alpha_eval),
-                            rng=rng_out,
+                            sigma_scale=float(sigma_scale),
+                            rng=rng_base,
                             use_uniform_fans=False,
-                            outlier_mult=float(outlier_mult),
+                            outlier_mult=None,
                         )
-                        robust_fail_vals.append(int(top_judge_final != "" and champ_out != top_judge_final))
 
-                    rows.append(
-                        {
-                            "season": int(season),
-                            "mechanism": mech,
-                            "alpha": float(alpha_eval),
-                            "n_sims": int(n_sims),
-                            "n_finalists": int(n_finalists),
-                            "top_judge_final": top_judge_final,
-                            "champion_mode": champ_mode,
-                            "champion_mode_prob": champ_mode_prob,
-                            "champion_entropy": champ_entropy,
-                            "tpi_season_avg": tpi_season_avg,
-                            "fan_vs_uniform_contrast": fan_vs_uniform_contrast,
-                            "robust_fail_rate": float(np.mean(robust_fail_vals)) if robust_fail_vals else float("nan"),
-                            "outlier_mult": float(outlier_mult),
-                        }
+                        champ_u = _simulate_one(
+                            season_week_map,
+                            season_weeks,
+                            mechanism=mech,
+                            alpha=float(alpha_eval),
+                            sigma_scale=float(sigma_scale),
+                            rng=rng_u,
+                            use_uniform_fans=True,
+                            outlier_mult=None,
+                        )
+
+                        champ_counts[champ] = champ_counts.get(champ, 0) + 1
+                        fan_vs_uniform_vals.append(int(champ != champ_u))
+
+                        if champ:
+                            season_tpi = _calculate_season_tpi(champ, season_week_map, season_weeks)
+                            if not np.isnan(season_tpi):
+                                tpi_vals.append(season_tpi)
+
+                    champ_mode = max(champ_counts.items(), key=lambda kv: kv[1])[0] if champ_counts else ""
+                    champ_mode_prob = (
+                        float(champ_counts.get(champ_mode, 0) / float(n_sims)) if n_sims > 0 else float("nan")
                     )
+                    champ_entropy = _safe_entropy(champ_counts)
+
+                    fan_vs_uniform_contrast = float(np.mean(fan_vs_uniform_vals)) if fan_vs_uniform_vals else float("nan")
+                    if np.isfinite(fan_vs_uniform_contrast) and n_sims > 0:
+                        fan_vs_uniform_contrast_se = float(
+                            np.sqrt(fan_vs_uniform_contrast * (1.0 - fan_vs_uniform_contrast) / float(n_sims))
+                        )
+                    else:
+                        fan_vs_uniform_contrast_se = float("nan")
+
+                    if np.isfinite(champ_mode_prob) and n_sims > 0:
+                        champion_mode_prob_se = float(
+                            np.sqrt(champ_mode_prob * (1.0 - champ_mode_prob) / float(n_sims))
+                        )
+                    else:
+                        champion_mode_prob_se = float("nan")
+
+                    tpi_arr = np.asarray(tpi_vals, dtype=float)
+                    tpi_arr = tpi_arr[np.isfinite(tpi_arr)]
+                    tpi_n = int(tpi_arr.size)
+                    tpi_season_avg = float(np.mean(tpi_arr)) if tpi_n > 0 else float("nan")
+                    tpi_std = float(np.std(tpi_arr, ddof=1)) if tpi_n > 1 else float("nan")
+                    if tpi_n > 0:
+                        tpi_p05, tpi_p95 = [float(x) for x in np.quantile(tpi_arr, [0.05, 0.95])]
+                    else:
+                        tpi_p05, tpi_p95 = float("nan"), float("nan")
+
+                    rng_boot = np.random.default_rng(_mix_seed(seed, season, mech, alpha_eval, sigma_scale))
+                    tpi_boot_p025, tpi_boot_p975 = _bootstrap_mean_ci(
+                        tpi_arr, rng_boot, alpha=0.05, b=int(bootstrap_b)
+                    )
+
+                    for outlier_mult in outlier_mults:
+                        robust_fail_vals: list[int] = []
+
+                        robust_fail_rate_fixed = float("nan")
+                        robust_fail_rate_fixed_se = float("nan")
+                        robust_fail_rate_bottomk = float("nan")
+                        robust_fail_rate_bottomk_se = float("nan")
+
+                        robust_fail_rate_add = float("nan")
+                        robust_fail_rate_add_se = float("nan")
+                        robust_fail_rate_redist = float("nan")
+                        robust_fail_rate_redist_se = float("nan")
+
+                        robust_fail_vals_fixed: list[int] = []
+                        robust_fail_vals_bottomk: list[int] = []
+                        robust_fail_vals_add: list[int] = []
+                        robust_fail_vals_redist: list[int] = []
+
+                        for base_seed in base_seeds:
+                            rng_out = np.random.default_rng(base_seed + 2)
+                            champ_out = _simulate_one(
+                                season_week_map,
+                                season_weeks,
+                                mechanism=mech,
+                                alpha=float(alpha_eval),
+                                sigma_scale=float(sigma_scale),
+                                rng=rng_out,
+                                use_uniform_fans=False,
+                                outlier_mult=float(outlier_mult),
+                            )
+                            robust_fail_vals.append(int(top_judge_final != "" and champ_out != top_judge_final))
+
+                            if attacks_enabled:
+                                strat = set(attack_strategies)
+
+                                if "fixed" in strat and attack_fixed_name is not None:
+                                    rng_fx = np.random.default_rng(base_seed + 2)
+                                    champ_fx = _simulate_one(
+                                        season_week_map,
+                                        season_weeks,
+                                        mechanism=mech,
+                                        alpha=float(alpha_eval),
+                                        sigma_scale=float(sigma_scale),
+                                        rng=rng_fx,
+                                        use_uniform_fans=False,
+                                        outlier_mult=float(outlier_mult),
+                                        outlier_target_mode="fixed",
+                                        outlier_fixed_name=str(attack_fixed_name),
+                                    )
+                                    robust_fail_vals_fixed.append(int(top_judge_final != "" and champ_fx != top_judge_final))
+
+                                if "random_bottom_k" in strat:
+                                    rng_bk = np.random.default_rng(base_seed + 2)
+                                    rng_sel = np.random.default_rng(base_seed + 2002)
+                                    champ_bk = _simulate_one(
+                                        season_week_map,
+                                        season_weeks,
+                                        mechanism=mech,
+                                        alpha=float(alpha_eval),
+                                        sigma_scale=float(sigma_scale),
+                                        rng=rng_bk,
+                                        use_uniform_fans=False,
+                                        outlier_mult=float(outlier_mult),
+                                        outlier_target_mode="random_bottom_k",
+                                        outlier_bottom_k=int(attack_bottom_k),
+                                        outlier_rng=rng_sel,
+                                    )
+                                    robust_fail_vals_bottomk.append(
+                                        int(top_judge_final != "" and champ_bk != top_judge_final)
+                                    )
+
+                                if "add" in strat and attack_add_delta > 0:
+                                    rng_add = np.random.default_rng(base_seed + 2)
+                                    champ_add = _simulate_one(
+                                        season_week_map,
+                                        season_weeks,
+                                        mechanism=mech,
+                                        alpha=float(alpha_eval),
+                                        sigma_scale=float(sigma_scale),
+                                        rng=rng_add,
+                                        use_uniform_fans=False,
+                                        outlier_mult=float(outlier_mult),
+                                        outlier_attack_mode="add",
+                                        outlier_add_delta=float(attack_add_delta),
+                                    )
+                                    robust_fail_vals_add.append(int(top_judge_final != "" and champ_add != top_judge_final))
+
+                                if "redistribute" in strat and attack_redistribute_frac > 0:
+                                    rng_rd = np.random.default_rng(base_seed + 2)
+                                    champ_rd = _simulate_one(
+                                        season_week_map,
+                                        season_weeks,
+                                        mechanism=mech,
+                                        alpha=float(alpha_eval),
+                                        sigma_scale=float(sigma_scale),
+                                        rng=rng_rd,
+                                        use_uniform_fans=False,
+                                        outlier_mult=float(outlier_mult),
+                                        outlier_attack_mode="redistribute",
+                                        outlier_redistribute_frac=float(attack_redistribute_frac),
+                                    )
+                                    robust_fail_vals_redist.append(int(top_judge_final != "" and champ_rd != top_judge_final))
+
+                        robust_fail_rate = float(np.mean(robust_fail_vals)) if robust_fail_vals else float("nan")
+                        if np.isfinite(robust_fail_rate) and n_sims > 0:
+                            robust_fail_rate_se = float(
+                                np.sqrt(robust_fail_rate * (1.0 - robust_fail_rate) / float(n_sims))
+                            )
+                        else:
+                            robust_fail_rate_se = float("nan")
+
+                        if attacks_enabled and robust_fail_vals_fixed:
+                            robust_fail_rate_fixed = float(np.mean(robust_fail_vals_fixed))
+                            if np.isfinite(robust_fail_rate_fixed) and n_sims > 0:
+                                robust_fail_rate_fixed_se = float(
+                                    np.sqrt(robust_fail_rate_fixed * (1.0 - robust_fail_rate_fixed) / float(n_sims))
+                                )
+
+                        if attacks_enabled and robust_fail_vals_bottomk:
+                            robust_fail_rate_bottomk = float(np.mean(robust_fail_vals_bottomk))
+                            if np.isfinite(robust_fail_rate_bottomk) and n_sims > 0:
+                                robust_fail_rate_bottomk_se = float(
+                                    np.sqrt(robust_fail_rate_bottomk * (1.0 - robust_fail_rate_bottomk) / float(n_sims))
+                                )
+
+                        if attacks_enabled and robust_fail_vals_add:
+                            robust_fail_rate_add = float(np.mean(robust_fail_vals_add))
+                            if np.isfinite(robust_fail_rate_add) and n_sims > 0:
+                                robust_fail_rate_add_se = float(
+                                    np.sqrt(robust_fail_rate_add * (1.0 - robust_fail_rate_add) / float(n_sims))
+                                )
+
+                        if attacks_enabled and robust_fail_vals_redist:
+                            robust_fail_rate_redist = float(np.mean(robust_fail_vals_redist))
+                            if np.isfinite(robust_fail_rate_redist) and n_sims > 0:
+                                robust_fail_rate_redist_se = float(
+                                    np.sqrt(robust_fail_rate_redist * (1.0 - robust_fail_rate_redist) / float(n_sims))
+                                )
+
+                        rows.append(
+                            {
+                                "season": int(season),
+                                "mechanism": mech,
+                                "alpha": float(alpha_eval),
+                                "sigma_scale": float(sigma_scale),
+                                "n_sims": int(n_sims),
+                                "n_finalists": int(n_finalists),
+                                "top_judge_final": top_judge_final,
+                                "champion_mode": champ_mode,
+                                "champion_mode_prob": champ_mode_prob,
+                                "champion_mode_prob_se": champion_mode_prob_se,
+                                "champion_entropy": champ_entropy,
+                                "tpi_season_avg": tpi_season_avg,
+                                "tpi_n": int(tpi_n),
+                                "tpi_std": tpi_std,
+                                "tpi_p05": tpi_p05,
+                                "tpi_p95": tpi_p95,
+                                "tpi_boot_p025": tpi_boot_p025,
+                                "tpi_boot_p975": tpi_boot_p975,
+                                "fan_vs_uniform_contrast": fan_vs_uniform_contrast,
+                                "fan_vs_uniform_contrast_se": fan_vs_uniform_contrast_se,
+                                "robust_fail_rate": robust_fail_rate,
+                                "robust_fail_rate_se": robust_fail_rate_se,
+                                "robust_fail_rate_fixed": robust_fail_rate_fixed,
+                                "robust_fail_rate_fixed_se": robust_fail_rate_fixed_se,
+                                "robust_fail_rate_random_bottom_k": robust_fail_rate_bottomk,
+                                "robust_fail_rate_random_bottom_k_se": robust_fail_rate_bottomk_se,
+                                "robust_fail_rate_add": robust_fail_rate_add,
+                                "robust_fail_rate_add_se": robust_fail_rate_add_se,
+                                "robust_fail_rate_redistribute": robust_fail_rate_redist,
+                                "robust_fail_rate_redistribute_se": robust_fail_rate_redist_se,
+                                "outlier_mult": float(outlier_mult),
+                            }
+                        )
 
     out = pd.DataFrame(rows)
 
     out_fp = (paths.tables_dir() / "mcm2026c_q4_new_system_metrics.csv") if output_path is None else Path(output_path)
     io.write_csv(out, out_fp)
+
+    if output_path is None:
+        def _fmt_float_token(x: float) -> str:
+            s = ("%g" % float(x)).replace(".", "p")
+            return s
+
+        outlier_tok = "-".join(_fmt_float_token(x) for x in outlier_mults)
+        sigma_tok = "-".join(_fmt_float_token(x) for x in sigma_scales)
+
+        atk_suffix = ""
+        if attacks_enabled:
+            parts: list[str] = []
+            strat = set(attack_strategies)
+            if "fixed" in strat:
+                nm = (str(attack_fixed_name) if attack_fixed_name is not None else "")
+                safe = "".join([c for c in nm if c.isalnum()])
+                safe = safe[:16] if safe else "NA"
+                parts.append(f"fix{safe}")
+            if "random_bottom_k" in strat:
+                parts.append(f"bk{int(attack_bottom_k)}")
+            if "add" in strat and attack_add_delta > 0:
+                parts.append(f"add{_fmt_float_token(float(attack_add_delta))}")
+            if "redistribute" in strat and attack_redistribute_frac > 0:
+                parts.append(f"red{_fmt_float_token(float(attack_redistribute_frac))}")
+            atk_suffix = "_atk" + ("-".join(parts) if parts else "on")
+
+        param_name = (
+            "mcm2026c_q4_new_system_metrics_"
+            f"{fan_source_mechanism}_"
+            f"{int(n_sims)}_"
+            f"{int(seed)}_"
+            f"{outlier_tok}_"
+            f"{int(bootstrap_b)}_"
+            f"{sigma_tok}"
+            f"{atk_suffix}.csv"
+        )
+        io.write_csv(out, paths.tables_dir() / param_name)
 
     return Q4Outputs(new_system_metrics_csv=out_fp)
 

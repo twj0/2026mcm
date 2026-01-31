@@ -4,7 +4,8 @@
 *.swn
 examples/*
 archive-contest/
-
+mmd/
+tikz/
 
 # Python-generated files
 __pycache__/
