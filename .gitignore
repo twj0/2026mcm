@@ -2,8 +2,7 @@
 *.swp
 *.swo
 *.swn
-examples/MathModelHub/
-examples/MCM-Latex-template/
+examples/
 archive-contest/
 
 
