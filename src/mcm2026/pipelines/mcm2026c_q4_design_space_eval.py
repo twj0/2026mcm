@@ -699,6 +699,170 @@ def _bootstrap_mean_ci(
     return float(lo), float(hi)
 
 
+def _q4_se_from_ci95(ci_low: pd.Series, ci_high: pd.Series) -> pd.Series:
+    lo = pd.to_numeric(ci_low, errors="coerce")
+    hi = pd.to_numeric(ci_high, errors="coerce")
+    out = (hi - lo) / (2.0 * 1.96)
+    return out
+
+
+def _q4_rms(series: pd.Series) -> float:
+    s = pd.to_numeric(series, errors="coerce")
+    s = s[np.isfinite(s)]
+    if len(s) == 0:
+        return float("nan")
+    return float(np.sqrt(np.mean(np.square(s.to_numpy(dtype=float)))))
+
+
+def _q4_clip01(x: float) -> float:
+    if not np.isfinite(x):
+        return float("nan")
+    if x < 0.0:
+        return 0.0
+    if x > 1.0:
+        return 1.0
+    return float(x)
+
+
+def _q4_build_sensitivity_summary(
+    out: pd.DataFrame,
+    *,
+    fan_source_mechanism: str,
+) -> pd.DataFrame:
+    df = out.copy()
+    df["fan_source_mechanism"] = str(fan_source_mechanism)
+
+    attack_cols = [
+        "robust_fail_rate_fixed",
+        "robust_fail_rate_random_bottom_k",
+        "robust_fail_rate_add",
+        "robust_fail_rate_redistribute",
+    ]
+    present_attack_cols = [c for c in attack_cols if c in df.columns]
+    if present_attack_cols:
+        has_any = df[present_attack_cols].notna().any().any()
+        if bool(has_any):
+            cols = ["robust_fail_rate"] + present_attack_cols
+            v = df[cols].apply(pd.to_numeric, errors="coerce")
+            df["robust_fail_rate_worst"] = v.max(axis=1, skipna=True)
+        else:
+            df["robust_fail_rate_worst"] = pd.to_numeric(df["robust_fail_rate"], errors="coerce")
+    else:
+        df["robust_fail_rate_worst"] = pd.to_numeric(df["robust_fail_rate"], errors="coerce")
+
+    tpi_mc_se_boot = _q4_se_from_ci95(df.get("tpi_boot_p025", pd.Series([], dtype=float)), df.get("tpi_boot_p975", pd.Series([], dtype=float)))
+    tpi_std = pd.to_numeric(df.get("tpi_std", pd.Series([], dtype=float)), errors="coerce")
+    tpi_n = pd.to_numeric(df.get("tpi_n", pd.Series([], dtype=float)), errors="coerce")
+    tpi_mc_se_std = tpi_std / np.sqrt(np.maximum(tpi_n, 1.0))
+    tpi_mc_se_row = tpi_mc_se_boot
+    mask = ~np.isfinite(tpi_mc_se_row)
+    if mask.any():
+        tpi_mc_se_row = tpi_mc_se_row.copy()
+        tpi_mc_se_row.loc[mask] = tpi_mc_se_std.loc[mask]
+    df["tpi_mc_se_row"] = tpi_mc_se_row
+
+    group_cols = ["fan_source_mechanism", "mechanism", "alpha", "sigma_scale", "outlier_mult", "n_sims"]
+
+    rows: list[dict] = []
+    for keys, g in df.groupby(group_cols, sort=True, dropna=False):
+        (fan_mech, mech, alpha, sigma_scale, outlier_mult, n_sims) = keys
+        n_seasons = int(g["season"].nunique())
+
+        tpi = pd.to_numeric(g["tpi_season_avg"], errors="coerce")
+        fan = pd.to_numeric(g["fan_vs_uniform_contrast"], errors="coerce")
+        rob = pd.to_numeric(g["robust_fail_rate"], errors="coerce")
+        rob_worst = pd.to_numeric(g["robust_fail_rate_worst"], errors="coerce")
+
+        tpi_mean = float(np.nanmean(tpi))
+        fan_mean = float(np.nanmean(fan))
+        rob_mean = float(np.nanmean(rob))
+        rob_worst_mean = float(np.nanmean(rob_worst))
+
+        tpi_sd = float(np.nanstd(tpi, ddof=1)) if np.isfinite(tpi).sum() > 1 else float("nan")
+        fan_sd = float(np.nanstd(fan, ddof=1)) if np.isfinite(fan).sum() > 1 else float("nan")
+        rob_sd = float(np.nanstd(rob, ddof=1)) if np.isfinite(rob).sum() > 1 else float("nan")
+        rob_worst_sd = float(np.nanstd(rob_worst, ddof=1)) if np.isfinite(rob_worst).sum() > 1 else float("nan")
+
+        if np.isfinite(tpi).sum() > 0:
+            tpi_q05, tpi_q95 = [float(x) for x in np.nanquantile(tpi, [0.05, 0.95])]
+        else:
+            tpi_q05, tpi_q95 = float("nan"), float("nan")
+        if np.isfinite(fan).sum() > 0:
+            fan_q05, fan_q95 = [float(x) for x in np.nanquantile(fan, [0.05, 0.95])]
+        else:
+            fan_q05, fan_q95 = float("nan"), float("nan")
+        if np.isfinite(rob).sum() > 0:
+            rob_q05, rob_q95 = [float(x) for x in np.nanquantile(rob, [0.05, 0.95])]
+        else:
+            rob_q05, rob_q95 = float("nan"), float("nan")
+        if np.isfinite(rob_worst).sum() > 0:
+            rob_worst_q05, rob_worst_q95 = [float(x) for x in np.nanquantile(rob_worst, [0.05, 0.95])]
+        else:
+            rob_worst_q05, rob_worst_q95 = float("nan"), float("nan")
+
+        tpi_mc_se_rms = _q4_rms(g["tpi_mc_se_row"]) if "tpi_mc_se_row" in g.columns else float("nan")
+        fan_mc_se_rms = _q4_rms(g.get("fan_vs_uniform_contrast_se", pd.Series([], dtype=float)))
+        rob_mc_se_rms = _q4_rms(g.get("robust_fail_rate_se", pd.Series([], dtype=float)))
+
+        denom = float(np.sqrt(n_seasons)) if n_seasons > 0 else float("nan")
+
+        tpi_se_between = float(tpi_sd / denom) if np.isfinite(tpi_sd) and np.isfinite(denom) else float("nan")
+        fan_se_between = float(fan_sd / denom) if np.isfinite(fan_sd) and np.isfinite(denom) else float("nan")
+        rob_se_between = float(rob_sd / denom) if np.isfinite(rob_sd) and np.isfinite(denom) else float("nan")
+        rob_worst_se_between = float(rob_worst_sd / denom) if np.isfinite(rob_worst_sd) and np.isfinite(denom) else float("nan")
+
+        tpi_se_mc = float(tpi_mc_se_rms / denom) if np.isfinite(tpi_mc_se_rms) and np.isfinite(denom) else float("nan")
+        fan_se_mc = float(fan_mc_se_rms / denom) if np.isfinite(fan_mc_se_rms) and np.isfinite(denom) else float("nan")
+        rob_se_mc = float(rob_mc_se_rms / denom) if np.isfinite(rob_mc_se_rms) and np.isfinite(denom) else float("nan")
+
+        tpi_se = float(np.sqrt(tpi_se_between**2 + tpi_se_mc**2)) if np.isfinite(tpi_se_between) or np.isfinite(tpi_se_mc) else float("nan")
+        fan_se = float(np.sqrt(fan_se_between**2 + fan_se_mc**2)) if np.isfinite(fan_se_between) or np.isfinite(fan_se_mc) else float("nan")
+        rob_se = float(np.sqrt(rob_se_between**2 + rob_se_mc**2)) if np.isfinite(rob_se_between) or np.isfinite(rob_se_mc) else float("nan")
+
+        tpi_ci_low = _q4_clip01(tpi_mean - 1.96 * tpi_se) if np.isfinite(tpi_mean) and np.isfinite(tpi_se) else float("nan")
+        tpi_ci_high = _q4_clip01(tpi_mean + 1.96 * tpi_se) if np.isfinite(tpi_mean) and np.isfinite(tpi_se) else float("nan")
+        fan_ci_low = _q4_clip01(fan_mean - 1.96 * fan_se) if np.isfinite(fan_mean) and np.isfinite(fan_se) else float("nan")
+        fan_ci_high = _q4_clip01(fan_mean + 1.96 * fan_se) if np.isfinite(fan_mean) and np.isfinite(fan_se) else float("nan")
+        rob_ci_low = _q4_clip01(rob_mean - 1.96 * rob_se) if np.isfinite(rob_mean) and np.isfinite(rob_se) else float("nan")
+        rob_ci_high = _q4_clip01(rob_mean + 1.96 * rob_se) if np.isfinite(rob_mean) and np.isfinite(rob_se) else float("nan")
+
+        rows.append(
+            {
+                "fan_source_mechanism": str(fan_mech),
+                "mechanism": str(mech),
+                "alpha": float(alpha),
+                "sigma_scale": float(sigma_scale),
+                "outlier_mult": float(outlier_mult),
+                "n_sims": int(n_sims),
+                "n_seasons": int(n_seasons),
+                "tpi_mean": float(tpi_mean),
+                "tpi_q05": float(tpi_q05),
+                "tpi_q95": float(tpi_q95),
+                "tpi_se": float(tpi_se),
+                "tpi_ci95_low": float(tpi_ci_low),
+                "tpi_ci95_high": float(tpi_ci_high),
+                "fan_mean": float(fan_mean),
+                "fan_q05": float(fan_q05),
+                "fan_q95": float(fan_q95),
+                "fan_se": float(fan_se),
+                "fan_ci95_low": float(fan_ci_low),
+                "fan_ci95_high": float(fan_ci_high),
+                "robust_fail_mean": float(rob_mean),
+                "robust_fail_q05": float(rob_q05),
+                "robust_fail_q95": float(rob_q95),
+                "robust_fail_se": float(rob_se),
+                "robust_fail_ci95_low": float(rob_ci_low),
+                "robust_fail_ci95_high": float(rob_ci_high),
+                "robust_fail_worst_mean": float(rob_worst_mean),
+                "robust_fail_worst_q05": float(rob_worst_q05),
+                "robust_fail_worst_q95": float(rob_worst_q95),
+                "robust_fail_worst_se_between": float(rob_worst_se_between),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
+
 def run(
     *,
     n_sims: int | None = None,
@@ -1102,6 +1266,14 @@ def run(
 
     out_fp = (paths.tables_dir() / "mcm2026c_q4_new_system_metrics.csv") if output_path is None else Path(output_path)
     io.write_csv(out, out_fp)
+
+    if output_path is None:
+        try:
+            summary = _q4_build_sensitivity_summary(out, fan_source_mechanism=str(fan_source_mechanism))
+            summary_fp = paths.tables_dir() / "mcm2026c_q4_sensitivity_summary.csv"
+            io.write_csv(summary, summary_fp)
+        except Exception:
+            pass
 
     if output_path is None:
         def _fmt_float_token(x: float) -> str:
