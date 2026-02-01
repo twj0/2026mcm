@@ -42,6 +42,7 @@ def main() -> int:
         from mcm2026.pipelines.mcm2026c_q2_counterfactual_simulation import run as run_q2
         from mcm2026.pipelines.mcm2026c_q3_mixed_effects_impacts import run as run_q3
         from mcm2026.pipelines.mcm2026c_q4_design_space_eval import run as run_q4
+        from mcm2026.pipelines.mcm2026c_export_paper_tables import run as run_paper_tables
 
         raw_files = _list_raw_files(paths.raw_data_dir())
         if not raw_files:
@@ -88,6 +89,13 @@ def main() -> int:
         print("Running Q4 (new system design space eval)...")
         q4_out = run_q4()
         print(f"Wrote: {q4_out.new_system_metrics_csv}")
+
+        print("Exporting paper tables (paper_*.csv)...")
+        paper_out = run_paper_tables()
+        print(f"Wrote: {paper_out.q1_high_uncertainty_weeks_csv}")
+        print(f"Wrote: {paper_out.q1_error_cases_csv}")
+        print(f"Wrote: {paper_out.q2_divergence_summary_csv}")
+        print(f"Wrote: {paper_out.q4_recommendation_summary_csv}")
 
     if run_showcase:
         cfg = {}

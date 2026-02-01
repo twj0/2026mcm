@@ -11,16 +11,11 @@ In response to the title of this article, the following hypotheses are proposed:
 	labelwidth = 2em,
 	labelsep = 5pt,
 	leftmargin = 8em]
-	\item[\textbf{Assumption 1:}] This is the first assumption 1.
-	\item[\textbf{Assumption 2:}] This is the second assumption 2.
-	\item[\textbf{Assumption 3:}] 
-	\item[\textbf{Assumption 4:}] 
-	\item[\textbf{Assumption 5:}] 
-\end{enumerate}
-
-
-\begin{enumerate}
-	\item 
+	\item[\textbf{假设1：}] 题面提供的DWTS官方数据表在Q0预处理后可视为内部一致；由\texttt{season$\times$week$\times$contestant}构成的键是Q1--Q4的唯一主线口径。
+	\item[\textbf{假设2：}] Q0提取的淘汰/退赛标记能够正确识别当周退出选手集合；退出后的缺失分数不做插补，以避免引入未来信息。
+	\item[\textbf{假设3：}] 观众投票不可直接观测；Q1将观众偏好作为潜变量，并由退出结果与评委信号共同约束。因此Q1输出解释为周内\emph{相对}人气强度，而非绝对票数。
+	\item[\textbf{假设4：}] 在Q2--Q4评估替代机制时，我们固定赛季-周背景，并将Q1推断得到的观众强度后验视为可行偏好空间；不额外建模规则变化诱发的策略性行为改变。
+	\item[\textbf{假设5：}] \texttt{src/mcm2026/config/config.yaml}中的配置参数（如\texttt{alpha}, \texttt{tau}, \texttt{outlier\_mults}）体现制作方偏好与压力强度设定；鲁棒性结论均在这些设定条件下报告。
 \end{enumerate}
 
 
@@ -32,8 +27,10 @@ In response to the title of this article, the following hypotheses are proposed:
 		\toprule[1pt] 
 		\makebox[0.15\textwidth][c]{Symbol} & \makebox[0.3\textwidth][c]{Description} & \makebox[0.15\textwidth][c]{Symbol} & \makebox[0.3\textwidth][c]{Description} \\  
 		\hline
-		$T_i$ & Temperature of small zone & $T_j$ & Temperature of large zone \\
-		$x$ & Variable x & $y$ & Variable y \\    
+		$s$ & 赛季索引 & $t$ & 赛季内周索引 \\
+		$i$ & 选手（celebrity）索引 & $J_{s,t,i}$ & 评委信号（例如\texttt{judge\_score\_pct}） \\
+		$p_{s,t,i}$ & 观众份额（Q1后验汇总） & $\alpha$ & 机制中评委-观众权重 \\
+		$\tau$ & Q1软约束温度 & ESS ratio & 有效样本量占比（Q1不确定性） \\
 		\bottomrule[1pt]
 	\end{tabular}
 \end{center}

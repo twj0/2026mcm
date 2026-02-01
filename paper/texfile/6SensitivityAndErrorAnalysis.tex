@@ -9,6 +9,8 @@
 \paragraph{Q1后验不确定性与可识别性}
 我们首先通过不确定性热力图展示每个赛季-周在Percent机制下的推断区间宽度，观察哪些周对参数与噪声更敏感（图\ref{fig:q1_uncertainty_heatmap}）。随后，结合Q1结果区间图（见图\ref{fig:q1_fan_share_intervals}）检验“高评委分但低观众支持”的典型结构是否被模型捕捉。
 
+为保证论文表格可复现，本文中以\texttt{paper\_*.csv}形式插入的“裁剪版表格”均由主线输出确定性导出（导出脚本：\texttt{src/mcm2026/pipelines/mcm2026c\_export\_paper\_tables.py}），其上游来源分别为\texttt{outputs/tables/mcm2026c\_q1\_uncertainty\_summary.csv}、\texttt{outputs/tables/mcm2026c\_q1\_error\_diagnostics\_week.csv}、\texttt{outputs/tables/mcm2026c\_q2\_mechanism\_comparison.csv}与\texttt{outputs/tables/mcm2026c\_q4\_sensitivity\_summary.csv}。
+
 \begin{table}[H]
     \centering
     \caption{Q1高不确定性周：以有效样本量占比（ESS ratio）与证据强度（evidence）筛选最不稳定的周段，用于定位误差高风险输入。}

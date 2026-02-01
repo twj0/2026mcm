@@ -48,3 +48,35 @@
     \caption{数据结构示意：评委分与观众偏好信号的关系（用于后续Q1推断与诊断）。}
     \label{fig:q1_judge_vs_fan_scatter}
 \end{figure}
+
+\subsection{Reproducibility and audit artifacts}
+为保证“论文叙述---模型输入---输出图表”三者一致，我们在Q0阶段将原始DWTS宽表转换为两张\textbf{规范化主线数据集}，并提供对应的审计表用于快速核对。
+
+\paragraph{Canonical processed datasets (Q0 outputs)}
+\begin{enumerate}[
+    label = (\arabic*),
+    itemindent = 0pt,
+    labelindent = \parindent,
+    labelwidth = 2em,
+    labelsep = 5pt,
+    leftmargin = 4.5em
+    ]
+    \item \texttt{../data/processed/dwts\_weekly\_panel.csv}: 周度面板（\textbf{2777$\times$18}）。该表包含后续Q1--Q4所需的核心字段：\texttt{judge\_score\_total}, \texttt{judge\_score\_pct}, \texttt{judge\_rank}, \texttt{active\_flag}（以上核心字段缺失为0）。
+    \item \texttt{../data/processed/dwts\_season\_features.csv}: 赛季层特征（\textbf{421$\times$11}）。该表提供静态协变量（年龄、行业、地区、舞伴等）用于Q3解释模型。
+\end{enumerate}
+
+\paragraph{Missingness and exit-type sanity checks}
+基于主线 processed 数据表的统计审计：周度面板整体缺失率约为\textbf{4.54\%}，赛季特征表整体缺失率约为\textbf{2.42\%}；按选手赛季结果推断的退出类型分布为\texttt{eliminated=298}, \texttt{withdrew=10}, \texttt{unknown=113}。这些统计用于约束后续推断的“信息量”与边界条件（例如多退出周、退赛周等）。
+
+\paragraph{Q0 audit tables (written under \texttt{outputs/tables/})}
+\begin{enumerate}[
+    label = (\arabic*),
+    itemindent = 0pt,
+    labelindent = \parindent,
+    labelwidth = 2em,
+    labelsep = 5pt,
+    leftmargin = 4.5em
+    ]
+    \item \texttt{../outputs/tables/mcm2026c\_q0\_sanity\_season\_week.csv}: 逐赛季逐周审计（在场人数、淘汰/退赛标记、分数百分位和等）。
+    \item \texttt{../outputs/tables/mcm2026c\_q0\_sanity\_contestant.csv}: 逐选手审计（淘汰周/退赛周推断与一致性检查）。
+\end{enumerate}

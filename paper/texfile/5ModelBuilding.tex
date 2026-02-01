@@ -2,53 +2,24 @@
 \section{Model Building and Solution}
 
 \subsection{Model Establishment and Solution of Question One}
-\subsubsection{***Model Establishment}
+\subsubsection{Model Establishment}
+Q1的目标是在题面未直接给出投票数/投票比例的条件下，为每个赛季-周-选手构造可用于后续机制对比的“观众偏好强度”后验分布。我们将\textbf{周淘汰结果}视为对观众偏好的一条弱监督约束，将\textbf{评委信号}作为技术线参考，并在每个\texttt{season$\times$week}上独立地推断一组粉丝份额（simplex）并量化不确定性。
 
-
-%模型建立的内容要点如下：
-%模型的主要类别：
-%几种常见的建模目的：
-%建模过程常见的几个要点：
-%模型的基本要求：
-%模型选择要点：
-%加分项（能在规定时间内做完后还有足够时间的再考虑加分项）：
-%1、鼓励创新。在能解决问题的基础上，对经典模型进行改进，欣赏独树一帜、有创新性的模型，但要合理。
-%2、对于同一问题使用两个或以上合理模型进行求解。避免出现单纯罗列模型，又不做对比和评价的现象。
-%参考话术：我们需要解决的问题是。。。。，题目要求是。。。。，剔除。。。数据后选用何种类型的模型优点进行分析。具体步骤123。。。
-\subsubsection{***Model Solution}
-
-
-%将预处理数据带入上述模型，通过。。。软件得到。。结果。（编程代码详见附件*）。模型求解及结果需要图文并茂，用数据说话  用图展示。具体步骤123。。。
-\subsubsection{Results}
-
-
-%针对于每一个问题的结果综述总结。
-\subsection{Second-level Heading}
-\subsubsection{Third-level Heading}
-
-
-\subsubsection{List Environment}
-\begin{enumerate}
-	\item 
-	
-	\item 	
+\paragraph{Inputs (canonical)}
+\begin{enumerate}[label=(\arabic*),leftmargin=2.4em]
+    \item \texttt{data/processed/dwts\_weekly\_panel.csv}（Q0输出）：包含\texttt{active\_flag}、\texttt{eliminated\_this\_week}、\texttt{withdrew\_this\_week}、\texttt{judge\_score\_pct}、\texttt{judge\_rank}等。
+    \item \texttt{src/mcm2026/config/config.yaml}：读取\texttt{dwts.q1.alpha}, \texttt{dwts.q1.tau}, \texttt{dwts.q1.prior\_draws\_m}, \texttt{dwts.q1.posterior\_resample\_r}。
 \end{enumerate}
 
+\paragraph{Outputs (mainline artifacts)}
+\begin{enumerate}[label=(\arabic*),leftmargin=2.4em]
+    \item \texttt{outputs/predictions/mcm2026c\_q1\_fan\_vote\_posterior\_summary.csv}：每周每位选手的\texttt{fan\_share\_mean/median/p05/p95}与\texttt{fan\_vote\_index\_mean/median/p05/p95}（Percent与Rank两套机制各一份）。
+    \item \texttt{outputs/tables/mcm2026c\_q1\_uncertainty\_summary.csv}：每周不确定性诊断（\texttt{ess\_ratio}, \texttt{evidence}等）。
+\end{enumerate}
 
-\begin{itemize}
-	\item[(a)] 
-	
-	
-	\item[(b)] 	
-\end{itemize}
+\subsubsection{Results}
+图\ref{fig:q1_fan_share_intervals}展示了Q1的核心输出：在每个赛季-周内，以后验区间呈现选手的相对观众份额，并标注不确定性差异。该后验汇总表是Q2（反事实机制对比）与Q4（新机制压力测试/设计评估）的直接上游输入。
 
-
-\begin{itemize}
-	\item 
-	\item 
-\end{itemize}
-
-\subsubsection{Figure}	
 \begin{figure}[h]%[h]:fixed action
 	\centering%center
 	\includegraphics[width=0.96\linewidth]{../outputs/figures/q1/pdf/q1_fan_share_intervals.pdf}
@@ -56,10 +27,11 @@
 	\label{fig:q1_fan_share_intervals}
 \end{figure}
 
-TOPS: How to cite, look here: \cref{fig:q1_fan_share_intervals}
-
 \subsection{Model Establishment and Solution of Question Two}
 Q2在Q1后验输出的基础上，进一步回答“投票汇总机制改变会如何改变淘汰结果”。我们将观众端信号在Percent与Rank两类机制下进行对照，并用两张图把差异从“定位（哪一周最分歧）”与“分布（差异是系统性还是偶发）”两条视角串联起来。
+
+\paragraph{Inputs/Outputs (mainline artifacts)}
+Q2直接读取\texttt{outputs/predictions/mcm2026c\_q1\_fan\_vote\_posterior\_summary.csv}，并写出\texttt{outputs/tables/mcm2026c\_q2\_mechanism\_comparison.csv}作为赛季层对比汇总（含\texttt{diff\_weeks\_percent\_vs\_rank}与各类匹配率）。周层比较明细在\texttt{outputs/tables/mcm2026c\_q2\_week\_level\_comparison\_percent.csv}与\texttt{outputs/tables/mcm2026c\_q2\_week\_level\_comparison\_rank.csv}中，可用于逐周复核。
 
 \begin{figure}[H]
     \centering
@@ -78,14 +50,15 @@ Q2在Q1后验输出的基础上，进一步回答“投票汇总机制改变会�
 \subsection{Model Establishment and Solution of Question Three}
 Q3旨在回答“哪些因素驱动选手在评委线（technical）与观众线（fan）上的相对优势”。我们在同一数据口径下分别对两条信号建模，并用可解释的系数比较来呈现不同因素的方向与大小。
 
+\paragraph{Inputs/Outputs (mainline artifacts)}
+Q3读取\texttt{data/processed/dwts\_weekly\_panel.csv}与\texttt{data/processed/dwts\_season\_features.csv}，并将Q1的后验汇总按赛季聚合为观众线因变量；随后拟合混合效应模型（失败时回退OLS）并写出\texttt{outputs/tables/mcm2026c\_q3\_impact\_analysis\_coeffs.csv}。此外，\texttt{outputs/tables/mcm2026c\_q3\_fan\_refit\_coeff\_draws.csv}与\texttt{outputs/tables/mcm2026c\_q3\_fan\_refit\_stability.csv}用于传播Q1不确定性并诊断系数稳定性。
+
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.98\linewidth]{../outputs/figures/q3/pdf/q3_judge_vs_fan_forest_plot.pdf}
     \caption{Q3关键证据（系数森林图）：对比评委线与观众线的核心协变量效应与区间，突出“同一因素在两条线上的异同”。}
     \label{fig:q3_judge_vs_fan_forest_plot}
 \end{figure}
-
-考虑到年龄效应往往呈现非线性（存在“黄金年龄段”或拐点），我们将年龄的一次项与二次项合成为连续曲线，并以阴影带展示不确定性来源（观众线使用后验重拟合抽样，评委线使用区间近似）。
 
 \begin{figure}[H]
     \centering
@@ -97,40 +70,12 @@ Q3旨在回答“哪些因素驱动选手在评委线（technical）与观众线
 \subsection{Model Establishment and Solution of Question Four}
 Q4将Q2的反事实比较进一步扩展到压力测试：我们对不同强度的异常冲击进行模拟，观察各机制的失效概率随压力的变化轨迹，从而把“在正常情况下有效”与“在异常冲击下仍稳健”区分开来。
 
+\paragraph{Inputs/Outputs (mainline artifacts)}
+Q4读取\texttt{outputs/predictions/mcm2026c\_q1\_fan\_vote\_posterior\_summary.csv}并基于\texttt{src/mcm2026/config/config.yaml}中的\texttt{dwts.q4}参数（\texttt{n\_sims}、\texttt{outlier\_mults}、\texttt{bootstrap\_b}等）进行机制评估。核心指标写入\texttt{outputs/tables/mcm2026c\_q4\_new\_system\_metrics.csv}，并在\texttt{outputs/tables/mcm2026c\_q4\_sensitivity\_summary.csv}中聚合为机制层对比；图\ref{fig:q4_robustness_curves_mb}展示了鲁棒性失败率随压力增强的变化曲线。
+
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.96\linewidth]{../outputs/figures/q4/pdf/q4_robustness_curves.pdf}
     \caption{Q4鲁棒性曲线（Model Building视角）：不同机制在压力增强下的失效概率轨迹，用于比较稳健性。}
     \label{fig:q4_robustness_curves_mb}
 \end{figure}
-
-\subsubsection{Table}
-
-\begin{table}[!htbp]
-	\caption{Table Name}	\centering
-	\begin{tabular}{c c}
-		\hline \multicolumn{1}{c} { Welding Zone Center Temperature} & Time $(\mathrm{s})$ \\
-		\hline $30^{\circ} \mathrm{C}$ & 0 \\
-		$150^{\circ} \mathrm{C}$ & $t_{1}$ \\
-		$190^{\circ} \mathrm{C}$ & $t_{2}$ \\
-		\hline
-		\label{tab:1}
-	\end{tabular}
-\end{table}
-
-TOPS: How to cite, look here: \cref{tab:1}
-
-\subsubsection{Formula}
-
-\begin{equation}
-	\alpha^2+\beta^2=\gamma^2 \label{eq:model_building_1}
-\end{equation}
-
-\begin{equation}
-	a+b=c \label{eq:model_building_2}
-\end{equation}
-
-TOPS: How to cite, look here: \cref{eq:model_building_1,eq:model_building_2}
-
-
-How to  cite references, look here: \cite{ref01}, \cite{ref02}

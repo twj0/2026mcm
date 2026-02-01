@@ -62,4 +62,47 @@
 	\label{fig:q4_mechanism_recommendation}
 \end{figure}
 
+\subsection{Artifact and evidence index (mainline)}
+为避免“口头结论与真实产物不一致”，我们将主线脚本、输出文件与论文引用位置做一一绑定（表\ref{tab:artifact_index_mainline}）。评卷人可以从表中直接定位到\texttt{outputs/}下的CSV与PDF文件进行复核。
+
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabularx}{\linewidth}{p{0.20\linewidth} p{0.46\linewidth} p{0.26\linewidth}}
+        \toprule
+        \textbf{Pipeline (script)} & \textbf{Primary artifacts (exact filenames)} & \textbf{Used in paper} \\
+        \midrule
+        \texttt{mcm2026c\_q0\_build\_weekly\_panel.py} & \texttt{data/processed/dwts\_weekly\_panel.csv}; \texttt{data/processed/dwts\_season\_features.csv}; \texttt{outputs/tables/mcm2026c\_q0\_sanity\_season\_week.csv}; \texttt{outputs/tables/mcm2026c\_q0\_sanity\_contestant.csv} & Sec.~4 (Data Preprocessing) \\
+        \texttt{mcm2026c\_q1\_smc\_fan\_vote.py} & \texttt{outputs/predictions/mcm2026c\_q1\_fan\_vote\_posterior\_summary.csv}; \texttt{outputs/tables/mcm2026c\_q1\_uncertainty\_summary.csv}; \texttt{outputs/figures/q1/pdf/q1\_fan\_share\_intervals.pdf}; \texttt{outputs/figures/q1/pdf/q1\_judge\_vs\_fan\_scatter.pdf}; \texttt{outputs/figures/q1/pdf/q1\_uncertainty\_heatmap.pdf}; \texttt{outputs/figures/q1/pdf/q1\_mechanism\_sensitivity\_overview.pdf} & Sec.~4, Sec.~5, Sec.~6 \\
+        \texttt{mcm2026c\_q2\_counterfactual\_simulation.py} & \texttt{outputs/tables/mcm2026c\_q2\_mechanism\_comparison.csv}; \texttt{outputs/figures/q2/pdf/q2\_week\_level\_divergence\_heatmap.pdf}; \texttt{outputs/figures/q2/pdf/q2\_mechanism\_difference\_distribution.pdf}; \texttt{outputs/figures/q2/pdf/q2\_judge\_save\_impact.pdf} & Sec.~5, Sec.~6 \\
+        \texttt{mcm2026c\_q3\_mixed\_effects\_impacts.py} & \texttt{outputs/tables/mcm2026c\_q3\_impact\_analysis\_coeffs.csv}; \texttt{outputs/figures/q3/pdf/q3\_age\_effect\_curves.pdf}; \texttt{outputs/figures/q3/pdf/q3\_effect\_size\_comparison.pdf}; \texttt{outputs/figures/q3/pdf/q3\_judge\_vs\_fan\_forest\_plot.pdf} & Sec.~5 \\
+        \texttt{mcm2026c\_q4\_design\_space\_eval.py} & \texttt{outputs/tables/mcm2026c\_q4\_new\_system\_metrics.csv}; \texttt{outputs/figures/q4/pdf/q4\_robustness\_curves.pdf}; \texttt{outputs/figures/q4/pdf/q4\_champion\_uncertainty\_analysis.pdf}; \texttt{outputs/figures/q4/pdf/q4\_mechanism\_tradeoff\_scatter.pdf}; \texttt{outputs/figures/q4/pdf/q4\_mechanism\_recommendation.pdf} & Sec.~5, Sec.~6, Sec.~7 \\
+        \texttt{mcm2026c\_export\_paper\_tables.py} & \texttt{outputs/tables/paper\_q1\_high\_uncertainty\_weeks.csv}; \texttt{outputs/tables/paper\_q1\_error\_cases.csv}; \texttt{outputs/tables/paper\_q2\_divergence\_summary.csv}; \texttt{outputs/tables/paper\_q4\_recommendation\_summary.csv} & Sec.~6 (tables) \\
+        \bottomrule
+    \end{tabularx}
+    \caption{主线产物索引：脚本--数据--图表的可追溯映射（仅列出论文主链路使用的核心文件）。}
+    \label{tab:artifact_index_mainline}
+\end{table}
+
+\subsection{Claim-to-evidence mapping}
+下表将正文中的关键主张与其对应的主线证据文件做一一绑定，便于快速复核。
+
+\begin{table}[H]
+    \centering
+    \small
+    \begin{tabularx}{\linewidth}{p{0.42\linewidth} p{0.42\linewidth} p{0.12\linewidth}}
+        \toprule
+        \textbf{主张（论文表述）} & \textbf{证据（产物文件名）} & \textbf{位置} \\
+        \midrule
+        周度面板与赛季特征是Q1--Q4的唯一主线数据口径。 & \texttt{data/processed/dwts\_weekly\_panel.csv}; \texttt{data/processed/dwts\_season\_features.csv}; \texttt{outputs/tables/mcm2026c\_q0\_sanity\_season\_week.csv}; \texttt{outputs/tables/mcm2026c\_q0\_sanity\_contestant.csv} & Sec.~4 \\
+        Q1提供观众份额后验区间与逐周不确定性汇总。 & \texttt{outputs/predictions/mcm2026c\_q1\_fan\_vote\_posterior\_summary.csv}; \texttt{outputs/tables/mcm2026c\_q1\_uncertainty\_summary.csv}; Fig.~\ref{fig:q1_fan_share_intervals} & Sec.~5/6 \\
+        Percent与Rank机制在特定周/赛季产生分歧，且可被可视化定位。 & \texttt{outputs/tables/mcm2026c\_q2\_week\_level\_comparison\_percent.csv}; \texttt{outputs/tables/mcm2026c\_q2\_week\_level\_comparison\_rank.csv}; Fig.~\ref{fig:q2_week_level_divergence_heatmap_mb} & Sec.~5 \\
+        Q3将评委线与观众线分离建模，并报告可解释的系数区间。 & \texttt{outputs/tables/mcm2026c\_q3\_impact\_analysis\_coeffs.csv}; Fig.~\ref{fig:q3_judge_vs_fan_forest_plot} & Sec.~5 \\
+        Q4在压力测试下评估机制，并报告鲁棒性轨迹。 & \texttt{outputs/tables/mcm2026c\_q4\_new\_system\_metrics.csv}; \texttt{outputs/tables/mcm2026c\_q4\_sensitivity\_summary.csv}; Fig.~\ref{fig:q4_robustness_curves_mb} & Sec.~5/6 \\
+        \bottomrule
+    \end{tabularx}
+    \caption{关键主张与证据文件的映射（仅包含主线产物）。}
+    \label{tab:claim_evidence_map}
+\end{table}
+
 \section{Conclusion} %总结与展望
