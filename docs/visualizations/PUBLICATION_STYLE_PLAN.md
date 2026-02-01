@@ -19,6 +19,7 @@
 - **Style direction**: **Style B+C fusion** (Sci modern + fancy, still academic)
   - base: minimal, clean, high-contrast typography
   - add-ons: small UI-like callouts, subtle outlines, richer but controlled cues
+- **Style policy**: **enhanced / “fancy” is the default** (glow/gradients/highlight regions), still paper-safe
 - **Figure language**: **English-only**
 
 ## 1. Figure design system (house style)
@@ -83,6 +84,70 @@
 
 - Final: `tiff` (300 dpi), `eps`, `pdf`.
 - Add lightweight `png` preview for quick iteration.
+
+### 1.6 Fancy layer (default, “more flamboyant but still academic”)
+
+This layer is intended to deliver a stronger “wow” factor without breaking readability.
+
+**Non-negotiables**:
+
+- English-only text.
+- All colors sourced from the centralized palette.
+- Background effects must remain subtle (no dark themes, no heavy textures).
+- No chartjunk that obscures data (decorations must be low-alpha and behind data).
+
+**Fancy primitives (reusable visual grammar)**:
+
+- **Glow / underpaint**:
+  - For scatter points: draw twice.
+    - pass 1 (glow): same x/y, `s` ~ 1.8×, `alpha` ~ 0.12–0.18, `linewidth=0`, `zorder` low.
+    - pass 2 (crisp): normal `s`, `alpha` ~ 0.75–0.9, thin dark edge.
+  - For lines: draw twice.
+    - pass 1: thick line (`lw` ~ 2.8–3.4), `alpha` ~ 0.18–0.22.
+    - pass 2: normal line (`lw` ~ 1.8–2.2), `alpha` ~ 0.9.
+
+- **Outline / stroke** (for text and key glyphs):
+  - Use a thin dark stroke for readability on dense plots.
+  - Apply only to the top 3–6 annotated items.
+
+- **Gradient encoding (controlled)**:
+  - Heatmaps: add optional contour lines to emphasize “ridges”.
+  - Scatter: encode a 3rd dimension via colormap (e.g., robustness score) but keep legend compact.
+
+- **Highlight regions**:
+  - Use semi-transparent spans/rectangles to define “ideal region” or “risk zone”.
+  - Always label the region with a small callout chip.
+
+- **Inset chips (micro summaries)**:
+  - Small inset panels for:
+    - Showcase baseline comparison
+    - Mini metric table (2–4 numbers)
+    - Distribution inset (small KDE/hist)
+  - Inset must not exceed ~20% of the main panel area.
+
+- **Depth via z-order**:
+  - Background: `zorder` 0–1
+  - Main data: `zorder` 3–4
+  - Callouts/annotations: `zorder` 5+
+
+**Fancy recipes by figure type**:
+
+- **Trade-off scatter (Q4-F1)**:
+  - Add glow + crisp pass for points.
+  - Add an “ideal region” (semi-transparent rectangle) and a small callout.
+  - If `showcase` enabled: add inset with showcase Pareto points using hollow markers.
+
+- **Forest plot (Q3-F1)**:
+  - Use alternating row bands (very light alpha) to guide the eye.
+  - Use a thin glow on the estimate dots (not on CI lines).
+  - Highlight the top 3 terms with subtle annotation chips.
+
+- **Robustness curves (Q4-F2)**:
+  - Use line underpaint glow to separate curves in dense regions.
+  - Add a shaded “acceptable degradation” band if applicable.
+
+- **Heatmaps**:
+  - Add contour overlay at 2–4 levels and annotate only the top 3 cells.
 
 ## 2. Figure shortlist (4–5 per question)
 
@@ -213,6 +278,11 @@ Below is the recommended “paper-body” set. Each item includes: purpose, plot
 
 - All rcParams / colors / colormaps come from `src/mcm2026/visualizations/config.py`.
 - Each `q*_visualizations.py` should **not hardcode** colors except for rare, semantic reasons.
+
+**Style rule**:
+
+- Figures are generated in the enhanced style by default.
+- Figure identity and filenames remain unchanged; only styling changes.
 
 ### 3.2 Multi-panel composition utilities (recommended)
 

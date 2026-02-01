@@ -15,7 +15,11 @@ This module implements all visualization functions for Q3 analysis including:
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import seaborn as sns
+import matplotlib.patheffects as pe
+try:
+    import seaborn as sns
+except Exception:
+    sns = None
 from pathlib import Path
 from typing import Tuple, List, Optional, Dict
 import warnings
@@ -59,21 +63,39 @@ def create_q3_judge_vs_fan_forest_plot(
     judge_data = coeffs_data[coeffs_data['outcome'] == 'judge_score_pct_mean']
     judge_key = judge_data[judge_data['term'].isin(key_terms)].sort_values('estimate')
     
+    stroke_fc = str(config.callout_bbox(kind='note').get('facecolor', '#ffffff'))
+
     if len(judge_key) > 0:
         y_pos = np.arange(len(judge_key))
+        for yi in y_pos:
+            if int(yi) % 2 == 0:
+                ax1.axhspan(float(yi) - 0.5, float(yi) + 0.5, color=config.get_color('muted'), alpha=0.06, zorder=0)
+
+        ax1.scatter(
+            judge_key['estimate'],
+            y_pos,
+            s=120,
+            c=config.get_color('primary'),
+            alpha=0.14,
+            linewidths=0.0,
+            zorder=1,
+        )
         ax1.errorbar(judge_key['estimate'], y_pos, 
                     xerr=[judge_key['estimate'] - judge_key['ci_low'],
                           judge_key['ci_high'] - judge_key['estimate']],
-                    fmt='o', capsize=4, capthick=1.6, color=config.get_color('primary'), markersize=7)
+                    fmt='o', capsize=4, capthick=1.6, color=config.get_color('primary'), markersize=7, zorder=3)
         
         # Add significance markers
         for i, (_, row) in enumerate(judge_key.iterrows()):
             if row['p_value'] < 0.001:
-                ax1.text(row['ci_high'] + 0.01, i, '***', va='center', fontweight='bold')
+                t = ax1.text(row['ci_high'] + 0.01, i, '***', va='center', fontweight='bold')
+                t.set_path_effects([pe.withStroke(linewidth=2.4, foreground=stroke_fc)])
             elif row['p_value'] < 0.01:
-                ax1.text(row['ci_high'] + 0.01, i, '**', va='center', fontweight='bold')
+                t = ax1.text(row['ci_high'] + 0.01, i, '**', va='center', fontweight='bold')
+                t.set_path_effects([pe.withStroke(linewidth=2.4, foreground=stroke_fc)])
             elif row['p_value'] < 0.05:
-                ax1.text(row['ci_high'] + 0.01, i, '*', va='center', fontweight='bold')
+                t = ax1.text(row['ci_high'] + 0.01, i, '*', va='center', fontweight='bold')
+                t.set_path_effects([pe.withStroke(linewidth=2.4, foreground=stroke_fc)])
         
         ax1.axvline(x=0, color=config.get_color('muted'), linestyle='--', alpha=0.85, linewidth=1.2)
         
@@ -90,19 +112,35 @@ def create_q3_judge_vs_fan_forest_plot(
     
     if len(fan_key) > 0:
         y_pos = np.arange(len(fan_key))
+        for yi in y_pos:
+            if int(yi) % 2 == 0:
+                ax2.axhspan(float(yi) - 0.5, float(yi) + 0.5, color=config.get_color('muted'), alpha=0.06, zorder=0)
+
+        ax2.scatter(
+            fan_key['estimate'],
+            y_pos,
+            s=120,
+            c=config.get_color('danger'),
+            alpha=0.14,
+            linewidths=0.0,
+            zorder=1,
+        )
         ax2.errorbar(fan_key['estimate'], y_pos, 
                     xerr=[fan_key['estimate'] - fan_key['ci_low'],
                           fan_key['ci_high'] - fan_key['estimate']],
-                    fmt='o', capsize=4, capthick=1.6, color=config.get_color('danger'), markersize=7)
+                    fmt='o', capsize=4, capthick=1.6, color=config.get_color('danger'), markersize=7, zorder=3)
         
         # Add significance markers
         for i, (_, row) in enumerate(fan_key.iterrows()):
             if row['p_value'] < 0.001:
-                ax2.text(row['ci_high'] + 0.01, i, '***', va='center', fontweight='bold')
+                t = ax2.text(row['ci_high'] + 0.01, i, '***', va='center', fontweight='bold')
+                t.set_path_effects([pe.withStroke(linewidth=2.4, foreground=stroke_fc)])
             elif row['p_value'] < 0.01:
-                ax2.text(row['ci_high'] + 0.01, i, '**', va='center', fontweight='bold')
+                t = ax2.text(row['ci_high'] + 0.01, i, '**', va='center', fontweight='bold')
+                t.set_path_effects([pe.withStroke(linewidth=2.4, foreground=stroke_fc)])
             elif row['p_value'] < 0.05:
-                ax2.text(row['ci_high'] + 0.01, i, '*', va='center', fontweight='bold')
+                t = ax2.text(row['ci_high'] + 0.01, i, '*', va='center', fontweight='bold')
+                t.set_path_effects([pe.withStroke(linewidth=2.4, foreground=stroke_fc)])
         
         ax2.axvline(x=0, color=config.get_color('muted'), linestyle='--', alpha=0.85, linewidth=1.2)
         
@@ -189,16 +227,16 @@ def create_q3_effect_size_comparison(
         ax.legend()
         ax.axhline(y=0, color=config.get_color('muted'), linestyle='-', alpha=0.55)
         ax.grid(True, alpha=0.3)
-    
+ 
     plt.tight_layout()
-
     save_figure_with_config(fig, 'q3_effect_size_comparison', output_dirs, config)
 
 
 def create_q3_age_effect_curves(
     coeffs_data: pd.DataFrame,
     output_dirs: Dict[str, Path],
-    config: VisualizationConfig
+    config: VisualizationConfig,
+    fan_refit_draws: Optional[pd.DataFrame] = None,
 ) -> None:
     """
     Create age effect curves showing non-linear relationships.
@@ -206,298 +244,184 @@ def create_q3_age_effect_curves(
     Args:
         coeffs_data: DataFrame with coefficient estimates
     """
-    fig, ax = plt.subplots(figsize=config.get_figure_size('single_column'))
-    
+    w, h = config.get_figure_size('single_column')
+    fig, (ax_j, ax_f) = plt.subplots(
+        2,
+        1,
+        figsize=(float(w), float(h) * 1.30),
+        sharex=True,
+        gridspec_kw={'hspace': 0.14, 'height_ratios': [1.0, 1.0]},
+    )
+
+    stroke_fc = str(config.callout_bbox(kind='note').get('facecolor', '#ffffff'))
+    age_range = np.linspace(18.0, 65.0, 240)
+    center_age = 35.0
+
     # Extract age coefficients
-    judge_data = coeffs_data[coeffs_data['outcome'] == 'judge_score_pct_mean']
-    fan_data = coeffs_data[coeffs_data['outcome'] == 'fan_vote_index_mean']
-    
-    # Get age and age_sq coefficients
-    judge_age = judge_data[judge_data['term'] == 'age']['estimate']
-    judge_age_sq = judge_data[judge_data['term'] == 'age_sq']['estimate']
-    fan_age = fan_data[fan_data['term'] == 'age']['estimate']
-    fan_age_sq = fan_data[fan_data['term'] == 'age_sq']['estimate']
-    
-    if len(judge_age) > 0 and len(judge_age_sq) > 0 and len(fan_age) > 0 and len(fan_age_sq) > 0:
-        age_range = np.linspace(18, 65, 100)
-        
-        # Calculate age effects
-        judge_age_effect = judge_age.iloc[0] * age_range + judge_age_sq.iloc[0] * (age_range ** 2)
-        fan_age_effect = fan_age.iloc[0] * age_range + fan_age_sq.iloc[0] * (age_range ** 2)
-        
-        # Plot curves
-        ax.plot(age_range, judge_age_effect, '-', linewidth=2.6, label='Judge line', alpha=0.9, color=config.get_color('primary'))
-        ax.plot(age_range, fan_age_effect, '-', linewidth=2.6, label='Fan line', alpha=0.9, color=config.get_color('danger'))
-        
-        # Calculate and mark optimal ages
-        if judge_age_sq.iloc[0] != 0:
-            judge_optimal_age = -judge_age.iloc[0] / (2 * judge_age_sq.iloc[0])
-            if 18 <= judge_optimal_age <= 65:
-                ax.axvline(x=judge_optimal_age, color=config.get_color('primary'), linestyle='--', alpha=0.8,
-                          label=f'Judge line optimal age: {judge_optimal_age:.1f} years')
-        
-        if len(fan_age) > 0 and len(fan_age_sq) > 0 and fan_age_sq.iloc[0] != 0:
-            fan_optimal_age = -fan_age.iloc[0] / (2 * fan_age_sq.iloc[0])
-            if 18 <= fan_optimal_age <= 65:
-                ax.axvline(x=fan_optimal_age, color=config.get_color('danger'), linestyle='--', alpha=0.8,
-                          label=f'Fan line optimal age: {fan_optimal_age:.1f} years')
-        
-        ax.set_xlabel('Age')
-        ax.set_ylabel('Predicted effect (relative)')
-        ax.set_title('Nonlinear age effect: judge vs fan line', fontweight='bold')
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-    
+    judge_data = coeffs_data[coeffs_data['outcome'] == 'judge_score_pct_mean'].copy()
+    fan_data = coeffs_data[coeffs_data['outcome'] == 'fan_vote_index_mean'].copy()
+
+    for c in ['estimate', 'std_err', 'ci_low', 'ci_high']:
+        if c in judge_data.columns:
+            judge_data[c] = pd.to_numeric(judge_data[c], errors='coerce')
+        if c in fan_data.columns:
+            fan_data[c] = pd.to_numeric(fan_data[c], errors='coerce')
+
+    def _get_row(d: pd.DataFrame, term: str) -> Optional[pd.Series]:
+        s = d[d['term'].astype(str) == str(term)]
+        if len(s) == 0:
+            return None
+        return s.iloc[0]
+
+    def _vertex(b1: float, b2: float) -> Optional[float]:
+        if not np.isfinite(b1) or not np.isfinite(b2) or float(b2) == 0.0:
+            return None
+        x = -float(b1) / (2.0 * float(b2))
+        if 18.0 <= x <= 65.0:
+            return float(x)
+        return None
+
+    def _curve(b1: float, b2: float) -> np.ndarray:
+        y = float(b1) * age_range + float(b2) * (age_range ** 2)
+        y0 = float(b1) * center_age + float(b2) * (center_age ** 2)
+        return y - y0
+
+    rng = np.random.default_rng(2026)
+
+    def _draws_from_row(row: Optional[pd.Series], n: int) -> np.ndarray:
+        if row is None:
+            return np.array([], dtype=float)
+
+        mu = float(row.get('estimate', np.nan))
+        if not np.isfinite(mu):
+            return np.array([], dtype=float)
+
+        se = float(row.get('std_err', np.nan))
+        ci_low = float(row.get('ci_low', np.nan))
+        ci_high = float(row.get('ci_high', np.nan))
+
+        sd = se if np.isfinite(se) and se > 0 else np.nan
+        if not np.isfinite(sd) and np.isfinite(ci_low) and np.isfinite(ci_high) and (ci_high > ci_low):
+            sd = float(ci_high - ci_low) / 3.92
+
+        if not np.isfinite(sd) or sd <= 0:
+            return np.full(n, mu, dtype=float)
+        return rng.normal(mu, sd, size=int(n)).astype(float)
+
+    def _band(b1_draws: np.ndarray, b2_draws: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
+        if len(b1_draws) == 0 or len(b2_draws) == 0:
+            return None
+        n = int(min(len(b1_draws), len(b2_draws)))
+        if n < 5:
+            return None
+
+        b1 = b1_draws[:n].astype(float)
+        b2 = b2_draws[:n].astype(float)
+        curves = np.vstack([_curve(float(a), float(b)) for a, b in zip(b1, b2)])
+        lo = np.nanpercentile(curves, 10, axis=0)
+        hi = np.nanpercentile(curves, 90, axis=0)
+        return lo.astype(float), hi.astype(float)
+
+    j_age = _get_row(judge_data, 'age')
+    j_age_sq = _get_row(judge_data, 'age_sq')
+    f_age = _get_row(fan_data, 'age')
+    f_age_sq = _get_row(fan_data, 'age_sq')
+
+    if j_age is None or j_age_sq is None or f_age is None or f_age_sq is None:
+        for ax in (ax_j, ax_f):
+            ax.axis('off')
+        ax_j.text(0.5, 0.5, 'Age terms not found', ha='center', va='center', transform=ax_j.transAxes)
+    else:
+        judge_b1 = float(j_age.get('estimate', np.nan))
+        judge_b2 = float(j_age_sq.get('estimate', np.nan))
+        fan_b1 = float(f_age.get('estimate', np.nan))
+        fan_b2 = float(f_age_sq.get('estimate', np.nan))
+
+        judge_line = _curve(judge_b1, judge_b2)
+        fan_line = _curve(fan_b1, fan_b2)
+
+        j_band = _band(_draws_from_row(j_age, 500), _draws_from_row(j_age_sq, 500))
+
+        fan_b1_draws = np.array([], dtype=float)
+        fan_b2_draws = np.array([], dtype=float)
+        if fan_refit_draws is not None and isinstance(fan_refit_draws, pd.DataFrame) and not fan_refit_draws.empty:
+            try:
+                d = fan_refit_draws.copy()
+                d = d[(d.get('outcome', '').astype(str) == 'fan_vote_index_mean')].copy()
+                d['term'] = d['term'].astype(str)
+                d['note'] = d.get('note', '').astype(str)
+                d['estimate'] = pd.to_numeric(d.get('estimate', np.nan), errors='coerce')
+                d = d[d['term'].isin(['age', 'age_sq'])].dropna(subset=['estimate']).copy()
+                if not d.empty:
+                    piv = d.pivot_table(index='note', columns='term', values='estimate', aggfunc='mean')
+                    piv = piv.dropna(subset=['age', 'age_sq']).copy()
+                    if not piv.empty:
+                        fan_b1_draws = piv['age'].to_numpy(dtype=float)
+                        fan_b2_draws = piv['age_sq'].to_numpy(dtype=float)
+            except Exception:
+                fan_b1_draws = np.array([], dtype=float)
+                fan_b2_draws = np.array([], dtype=float)
+
+        if len(fan_b1_draws) == 0 or len(fan_b2_draws) == 0:
+            fan_b1_draws = _draws_from_row(f_age, 500)
+            fan_b2_draws = _draws_from_row(f_age_sq, 500)
+
+        f_band = _band(fan_b1_draws, fan_b2_draws)
+
+        for ax in (ax_j, ax_f):
+            ax.axvspan(22, 45, color=config.get_color('muted'), alpha=0.06, zorder=0)
+            ax.axvline(center_age, color=config.get_color('muted'), linewidth=1.0, alpha=0.55, linestyle='--', zorder=0)
+            ax.grid(True, alpha=0.22)
+
+        if j_band is not None:
+            ax_j.fill_between(age_range, j_band[0], j_band[1], color=config.get_color('primary'), alpha=0.12, linewidth=0.0, zorder=1)
+        if f_band is not None:
+            ax_f.fill_between(age_range, f_band[0], f_band[1], color=config.get_color('danger'), alpha=0.12, linewidth=0.0, zorder=1)
+
+        ax_j.plot(age_range, judge_line, '-', linewidth=4.4, label=None, alpha=0.20, color=config.get_color('primary'), zorder=2)
+        ax_j.plot(age_range, judge_line, '-', linewidth=2.6, label='Judge line', alpha=0.92, color=config.get_color('primary'), zorder=3)
+        ax_f.plot(age_range, fan_line, '-', linewidth=4.4, label=None, alpha=0.20, color=config.get_color('danger'), zorder=2)
+        ax_f.plot(age_range, fan_line, '-', linewidth=2.6, label='Fan line', alpha=0.92, color=config.get_color('danger'), zorder=3)
+
+        j_opt = _vertex(judge_b1, judge_b2)
+        f_opt = _vertex(fan_b1, fan_b2)
+
+        if j_opt is not None:
+            ax_j.axvline(x=j_opt, color=config.get_color('primary'), linestyle='--', alpha=0.75, linewidth=1.6, zorder=4)
+            ytxt = float(np.nanmax(judge_line)) if np.isfinite(float(np.nanmax(judge_line))) else 0.0
+            t = ax_j.text(j_opt, ytxt, f"  turning point ≈ {j_opt:.1f}", ha='left', va='bottom', fontsize=9.2, color=config.get_color('primary'))
+            t.set_path_effects([pe.withStroke(linewidth=2.4, foreground=stroke_fc)])
+
+        if f_opt is not None:
+            ax_f.axvline(x=f_opt, color=config.get_color('danger'), linestyle='--', alpha=0.75, linewidth=1.6, zorder=4)
+            ytxt = float(np.nanmax(fan_line)) if np.isfinite(float(np.nanmax(fan_line))) else 0.0
+            t = ax_f.text(f_opt, ytxt, f"  turning point ≈ {f_opt:.1f}", ha='left', va='bottom', fontsize=9.2, color=config.get_color('danger'))
+            t.set_path_effects([pe.withStroke(linewidth=2.4, foreground=stroke_fc)])
+
+        ax_j.set_ylabel('Effect (centered at age 35)')
+        ax_f.set_ylabel('Effect (centered at age 35)')
+        ax_f.set_xlabel('Age')
+
+        ax_j.set_title('Nonlinear age effect (judge line)', fontweight='bold')
+        ax_f.set_title('Nonlinear age effect (fan line)', fontweight='bold')
+
+        ax_j.legend(loc='upper right', frameon=False)
+        ax_f.legend(loc='upper right', frameon=False)
+
+        ax_j.text(
+            0.02,
+            0.04,
+            'Shaded band = uncertainty (CI / refit draws)',
+            transform=ax_j.transAxes,
+            ha='left',
+            va='bottom',
+            fontsize=9.0,
+            bbox=config.callout_bbox(kind='note'),
+        )
+
     plt.tight_layout()
 
     save_figure_with_config(fig, 'q3_age_effect_curves', output_dirs, config)
-
-
-def create_q3_industry_impact_heatmap(
-    coeffs_data: pd.DataFrame,
-    output_dirs: Dict[str, Path],
-    config: VisualizationConfig
-) -> None:
-    """
-    Create industry category impact heatmap.
-    
-    Args:
-        coeffs_data: DataFrame with coefficient estimates
-    """
-    fig, ax = plt.subplots(figsize=config.get_figure_size('single_column'))
-    
-    # Extract industry coefficients
-    industry_terms = [term for term in coeffs_data['term'].unique() 
-                     if term.startswith('C(industry)[T.')]
-    
-    if len(industry_terms) > 0:
-        judge_data = coeffs_data[coeffs_data['outcome'] == 'judge_score_pct_mean']
-        fan_data = coeffs_data[coeffs_data['outcome'] == 'fan_vote_index_mean']
-        
-        industry_matrix = []
-        industry_labels = []
-        
-        for term in industry_terms[:10]:  # Limit to avoid crowding
-            industry_name = term.replace('C(industry)[T.', '').replace(']', '')
-            judge_coef = judge_data[judge_data['term'] == term]['estimate']
-            fan_coef = fan_data[fan_data['term'] == term]['estimate']
-            
-            if len(judge_coef) > 0 and len(fan_coef) > 0:
-                industry_matrix.append([judge_coef.iloc[0], fan_coef.iloc[0]])
-                industry_labels.append(industry_name)
-        
-        if len(industry_matrix) > 0:
-            industry_matrix = np.array(industry_matrix)
-            
-            # Create heatmap
-            vmax = float(np.nanquantile(np.abs(industry_matrix).ravel(), 0.95)) if industry_matrix.size else 0.1
-            vmax = vmax if np.isfinite(vmax) and vmax > 0 else 0.1
-            im = ax.imshow(industry_matrix.T, cmap=config.get_cmap('corr'), aspect='auto', vmin=-vmax, vmax=vmax)
-            
-            # Set labels
-            ax.set_xticks(range(len(industry_labels)))
-            ax.set_xticklabels(industry_labels, rotation=45, ha='right')
-            ax.set_yticks([0, 1])
-            ax.set_yticklabels(['Judge line', 'Fan line'])
-            
-            # Add value annotations
-            for i in range(len(industry_labels)):
-                for j in range(2):
-                    text = ax.text(i, j, f'{industry_matrix[i, j]:.3f}',
-                                  ha="center", va="center", color=config.get_color('text'), fontweight='bold')
-            
-            # Add colorbar
-            cbar = plt.colorbar(im)
-            cbar.set_label('Coefficient estimate')
-            
-            ax.set_title('Industry effects: judge vs fan line', fontweight='bold')
-    
-    plt.tight_layout()
-
-    save_figure_with_config(fig, 'q3_industry_impact_heatmap', output_dirs, config)
-
-
-def create_q3_mixed_effects_vs_ml(
-    ml_summary: pd.DataFrame,
-    dl_summary: pd.DataFrame,
-    output_dirs: Dict[str, Path],
-    config: VisualizationConfig
-) -> None:
-    """
-    Create mixed effects vs ML comparison (showcase).
-    
-    Args:
-        output_dir: Directory to save figures
-        figsize: Figure size tuple
-    """
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=config.get_figure_size('double_column'))
-
-    ml_perf = ml_summary.copy()
-    ml_perf['source'] = 'ML'
-    dl_perf = dl_summary.copy()
-    dl_perf['source'] = 'DL'
-
-    perf = pd.concat([ml_perf, dl_perf], ignore_index=True)
-    perf = perf.dropna(subset=['r2_mean', 'rmse_mean']).copy()
-    perf['model'] = perf['model'].astype(str)
-
-    perf_sorted = perf.sort_values('r2_mean', ascending=False).head(10)
-    ax1.barh(perf_sorted['model'], perf_sorted['r2_mean'], color=config.get_color('muted'), alpha=0.85)
-    ax1.set_xlabel('R² (mean)')
-    ax1.set_title('Showcase: Fan-index prediction (R²)', fontweight='bold')
-    ax1.grid(True, alpha=0.3)
-
-    perf_sorted2 = perf.sort_values('rmse_mean', ascending=True).head(10)
-    ax2.barh(perf_sorted2['model'], perf_sorted2['rmse_mean'], color=config.get_color('danger'), alpha=0.75)
-    ax2.set_xlabel('RMSE (mean)')
-    ax2.set_title('Showcase: Fan-index prediction (RMSE)', fontweight='bold')
-    ax2.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-
-    save_figure_with_config(fig, 'q3_mixed_effects_vs_ml', output_dirs, config)
-
-
-def create_q3_uncertainty_propagation(
-    refit_grid: pd.DataFrame,
-    output_dirs: Dict[str, Path],
-    config: VisualizationConfig
-) -> None:
-    """
-    Create uncertainty propagation effects plot.
-    
-    Args:
-        output_dir: Directory to save figures
-        figsize: Figure size tuple
-    """
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=config.get_figure_size('double_column'))
-
-    grid = refit_grid.copy()
-    grid = grid[grid['fan_source_mechanism'] == 'percent'].copy() if 'fan_source_mechanism' in grid.columns else grid
-    grid = grid.dropna(subset=['n_refits', 'ci_width_mean', 'outcome']).copy()
-
-    for outcome, ax in [('judge_score_pct_mean', ax1), ('fan_vote_index_mean', ax2)]:
-        sub = grid[grid['outcome'] == outcome].sort_values('n_refits')
-        if len(sub) == 0:
-            continue
-        ax.plot(sub['n_refits'], sub['ci_width_mean'], 'o-', linewidth=2, markersize=6, color=config.get_color('primary'))
-        ax.set_xlabel('n_refits')
-        ax.set_ylabel('Mean CI width')
-        ax.set_title(f'Showcase: CI width vs n_refits ({outcome})', fontweight='bold')
-        ax.grid(True, alpha=0.3)
-    
-    plt.tight_layout()
-
-    save_figure_with_config(fig, 'q3_uncertainty_propagation', output_dirs, config)
-
-
-def create_q3_refit_stability_bubble(
-    stability_data: pd.DataFrame,
-    showcase_baseline: pd.DataFrame | None,
-    output_dirs: Dict[str, Path],
-    config: VisualizationConfig,
-) -> None:
-    df = stability_data.copy()
-    if df.empty:
-        return
-
-    df = df[df["outcome"].astype(str) == "fan_vote_index_mean"].copy()
-    if df.empty:
-        return
-
-    df["iqr"] = pd.to_numeric(df["iqr"], errors="coerce")
-    df["sign_consistency"] = pd.to_numeric(df["sign_consistency"], errors="coerce")
-    df["estimate_median"] = pd.to_numeric(df["estimate_median"], errors="coerce")
-    df = df.dropna(subset=["iqr", "sign_consistency", "estimate_median"]).copy()
-    if df.empty:
-        return
-
-    def _clean_term(t: str) -> str:
-        s = str(t)
-        if s.startswith("C(industry)[T."):
-            return s.replace("C(industry)[T.", "")[:-1]
-        return s
-
-    df["term_clean"] = df["term"].astype(str).map(_clean_term)
-    df["term_group"] = np.where(df["term"].astype(str).str.startswith("C(industry)[T."), "industry", "core")
-
-    df = df.sort_values("iqr", ascending=False).head(24).copy()
-
-    fig, ax = plt.subplots(figsize=config.get_figure_size("double_column"))
-
-    colors = {"core": config.get_color('primary'), "industry": config.get_color('secondary')}
-
-    size = np.abs(df["estimate_median"].to_numpy(dtype=float))
-    size = 40.0 + 220.0 * (size / (np.nanmax(size) if np.nanmax(size) > 0 else 1.0))
-
-    ax.scatter(
-        df["sign_consistency"].to_numpy(dtype=float),
-        df["iqr"].to_numpy(dtype=float),
-        s=size,
-        c=[colors.get(g, config.get_color('muted')) for g in df["term_group"].astype(str)],
-        alpha=0.78,
-        linewidths=0.6,
-        edgecolors=config.get_color('text'),
-    )
-
-    for _, r in df.head(8).iterrows():
-        ax.annotate(
-            str(r["term_clean"]),
-            (float(r["sign_consistency"]), float(r["iqr"])),
-            xytext=(4, 3),
-            textcoords="offset points",
-            fontsize=8,
-            color=config.get_color('text'),
-        )
-
-    ax.set_xlabel("Sign consistency across refits")
-    ax.set_ylabel("Coefficient uncertainty (IQR: q95 - q05)")
-    ax.set_title("Q3 fan-line refit stability (direction vs uncertainty)", fontweight="bold")
-    ax.set_xlim(0.5, 1.02)
-    ax.set_ylim(bottom=0.0)
-
-    handles = [
-        plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=colors["core"], markeredgecolor=config.get_color('text'), markersize=8, label="Core terms"),
-        plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=colors["industry"], markeredgecolor=config.get_color('text'), markersize=8, label="Industry terms"),
-    ]
-    ax.legend(handles=handles, loc="upper left")
-
-    if showcase_baseline is not None and not showcase_baseline.empty:
-        try:
-            inset = ax.inset_axes([0.62, 0.64, 0.36, 0.30])
-            inset.set_title('Showcase baseline', fontsize=9.0, fontweight='bold')
-            sb = showcase_baseline.copy()
-            sb['r2_mean'] = pd.to_numeric(sb.get('r2_mean', np.nan), errors='coerce')
-            sb['rmse_mean'] = pd.to_numeric(sb.get('rmse_mean', np.nan), errors='coerce')
-
-            rows: list[tuple[str, float]] = []
-            if 'model' in sb.columns and 'r2_mean' in sb.columns:
-                best = sb.sort_values('r2_mean', ascending=False).head(1)
-                if len(best) and np.isfinite(float(best['r2_mean'].iloc[0])):
-                    rows.append((f"ML best R² ({str(best['model'].iloc[0])})", float(best['r2_mean'].iloc[0])))
-
-            if 'dl_r2_mean' in sb.columns:
-                rows.append(('DL best R²', float(sb['dl_r2_mean'].iloc[0])))
-
-            if rows:
-                names = [a for a, _ in rows]
-                vals = [b for _, b in rows]
-                y0 = np.arange(len(vals))
-                inset.barh(y0, vals, color=config.get_color('muted'), alpha=0.85)
-                inset.set_yticks(y0)
-                inset.set_yticklabels(names, fontsize=8.0)
-                inset.set_xlim(-1.0, 1.0)
-                inset.grid(True, alpha=0.25)
-                for i, v in enumerate(vals):
-                    if np.isfinite(v):
-                        inset.text(float(v) + 0.03, i, f"{float(v):.2f}", va='center', fontsize=8.0)
-
-                config.add_callout(ax, 'Showcase shown as contrast only', loc='lower left', kind='note')
-        except Exception:
-            pass
-
-    plt.tight_layout()
-    save_figure_with_config(fig, "q3_refit_stability_bubble", output_dirs, config)
 
 
 def generate_all_q3_visualizations(
@@ -526,6 +450,14 @@ def generate_all_q3_visualizations(
         
         mode = str(mode).strip().lower()
 
+        fan_refit_draws = None
+        try:
+            refit_path = data_dir / 'outputs' / 'tables' / 'mcm2026c_q3_fan_refit_coeff_draws.csv'
+            if refit_path.exists():
+                fan_refit_draws = pd.read_csv(refit_path)
+        except Exception:
+            fan_refit_draws = None
+
         baseline_df = None
         try:
             ml_path = data_dir / 'outputs' / 'tables' / 'showcase' / 'mcm2026c_q3_ml_fan_index_baselines_cv_summary.csv'
@@ -546,14 +478,18 @@ def generate_all_q3_visualizations(
         create_q3_effect_size_comparison(coeffs_data, output_dirs, config)
         print("✅ Created effect size comparison")
         
-        create_q3_age_effect_curves(coeffs_data, output_dirs, config)
+        create_q3_age_effect_curves(coeffs_data, output_dirs, config, fan_refit_draws=fan_refit_draws)
         print("✅ Created age effect curves")
 
         stability_path = data_dir / 'outputs' / 'tables' / 'mcm2026c_q3_fan_refit_stability.csv'
         if stability_path.exists():
             stab = pd.read_csv(stability_path)
-            create_q3_refit_stability_bubble(stab, baseline_df, output_dirs, config)
-            print("✅ Created refit stability bubble plot")
+            fn = globals().get('create_q3_refit_stability_bubble', None)
+            if callable(fn):
+                fn(stab, baseline_df, output_dirs, config)
+                print("✅ Created refit stability bubble plot")
+            else:
+                print("⚠️ Skipping refit stability bubble (function not available)")
 
         if mode != 'paper':
             create_q3_industry_impact_heatmap(coeffs_data, output_dirs, config)
