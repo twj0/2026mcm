@@ -51,16 +51,58 @@
 \subsubsection{Figure}	
 \begin{figure}[h]%[h]:fixed action
 	\centering%center
-	\includegraphics [scale=0.5]{texfile/figures/1.png}
-	\caption{Figure Name} 
-	\label{fig:1}
+	\includegraphics[width=0.96\linewidth]{../outputs/figures/q1/pdf/q1_fan_share_intervals.pdf}
+	\caption{Q1核心输出示意：观众份额后验区间（用于支撑后续机制对比与仿真）。} 
+	\label{fig:q1_fan_share_intervals}
 \end{figure}
 
-TOPS: How to cite, look here: \cref{fig:1}
+TOPS: How to cite, look here: \cref{fig:q1_fan_share_intervals}
 
+\subsection{Model Establishment and Solution of Question Two}
+Q2在Q1后验输出的基础上，进一步回答“投票汇总机制改变会如何改变淘汰结果”。我们将观众端信号在Percent与Rank两类机制下进行对照，并用两张图把差异从“定位（哪一周最分歧）”与“分布（差异是系统性还是偶发）”两条视角串联起来。
 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.96\linewidth]{../outputs/figures/q2/pdf/q2_week_level_divergence_heatmap.pdf}
+    \caption{Q2周层分歧定位（Model Building视角）：识别Percent与Rank在何时产生最大分歧，为反事实模拟提供切入点。}
+    \label{fig:q2_week_level_divergence_heatmap_mb}
+\end{figure}
 
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\linewidth]{../outputs/figures/q2/pdf/q2_mechanism_difference_distribution.pdf}
+    \caption{Q2机制差异分布（Model Building视角）：检验差异是否集中在少数极端周，避免仅凭个例下结论。}
+    \label{fig:q2_mechanism_difference_distribution_mb}
+\end{figure}
 
+\subsection{Model Establishment and Solution of Question Three}
+Q3旨在回答“哪些因素驱动选手在评委线（technical）与观众线（fan）上的相对优势”。我们在同一数据口径下分别对两条信号建模，并用可解释的系数比较来呈现不同因素的方向与大小。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.98\linewidth]{../outputs/figures/q3/pdf/q3_judge_vs_fan_forest_plot.pdf}
+    \caption{Q3关键证据（系数森林图）：对比评委线与观众线的核心协变量效应与区间，突出“同一因素在两条线上的异同”。}
+    \label{fig:q3_judge_vs_fan_forest_plot}
+\end{figure}
+
+考虑到年龄效应往往呈现非线性（存在“黄金年龄段”或拐点），我们将年龄的一次项与二次项合成为连续曲线，并以阴影带展示不确定性来源（观众线使用后验重拟合抽样，评委线使用区间近似）。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\linewidth]{../outputs/figures/q3/pdf/q3_age_effect_curves.pdf}
+    \caption{Q3非线性年龄效应：上为评委线、下为观众线，曲线以35岁为中心化基准，阴影带表示不确定性，并标注拐点位置。}
+    \label{fig:q3_age_effect_curves}
+\end{figure}
+
+\subsection{Model Establishment and Solution of Question Four}
+Q4将Q2的反事实比较进一步扩展到压力测试：我们对不同强度的异常冲击进行模拟，观察各机制的失效概率随压力的变化轨迹，从而把“在正常情况下有效”与“在异常冲击下仍稳健”区分开来。
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.96\linewidth]{../outputs/figures/q4/pdf/q4_robustness_curves.pdf}
+    \caption{Q4鲁棒性曲线（Model Building视角）：不同机制在压力增强下的失效概率轨迹，用于比较稳健性。}
+    \label{fig:q4_robustness_curves_mb}
+\end{figure}
 
 \subsubsection{Table}
 
@@ -80,23 +122,15 @@ TOPS: How to cite, look here: \cref{tab:1}
 
 \subsubsection{Formula}
 
-$\alpha^2+\beta^2=\gamma^2$
-
-$$ \alpha^2+\beta^2=\gamma^2$$
-
-\begin{equation}\nonumber
-	\alpha^2+\beta^2=\gamma^2
+\begin{equation}
+	\alpha^2+\beta^2=\gamma^2 \label{eq:model_building_1}
 \end{equation}
 
 \begin{equation}
-	\alpha^2+\beta^2=\gamma^2 \label{1}
+	a+b=c \label{eq:model_building_2}
 \end{equation}
 
-\begin{equation}
-	a+b=c \label{2}
-\end{equation}
-
-TOPS: How to cite, look here: \cref{1,2}
+TOPS: How to cite, look here: \cref{eq:model_building_1,eq:model_building_2}
 
 
 How to  cite references, look here: \cite{ref01}, \cite{ref02}

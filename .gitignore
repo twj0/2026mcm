@@ -31,4 +31,13 @@ htmlcov/
 
 
 .ace-tool/
-
+# latex
+*.aux
+*.log
+*.fls
+*.fdb*
+*.out
+*.sync*
+*.toc
+*.xdv
+*/*demo.md
