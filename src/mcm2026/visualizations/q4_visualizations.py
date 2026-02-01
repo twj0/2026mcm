@@ -31,20 +31,9 @@ except ImportError:  # pragma: no cover
     )
 
 
-# Set publication-quality style
-plt.rcParams.update({
-    'font.size': 12,
-    'axes.titlesize': 14,
-    'axes.labelsize': 12,
-    'xtick.labelsize': 10,
-    'ytick.labelsize': 10,
-    'legend.fontsize': 11,
-    'font.family': 'serif',
-    'figure.dpi': 300
-})
-
 def create_q4_mechanism_tradeoff_scatter(
     metrics_data: pd.DataFrame,
+    showcase_pareto: pd.DataFrame | None,
     output_dirs: Dict[str, Path],
     config: VisualizationConfig
 ) -> None:
@@ -63,8 +52,7 @@ def create_q4_mechanism_tradeoff_scatter(
         axes = [axes]
 
     mechanisms = sorted(metrics_data['mechanism'].unique())
-    palette = sns.color_palette('tab10', n_colors=max(len(mechanisms), 3))
-    colors = {m: palette[i % len(palette)] for i, m in enumerate(mechanisms)}
+    colors = {m: config.get_color(m) for m in mechanisms}
 
     for i, outlier_mult in enumerate(outlier_levels):
         ax = axes[i]
@@ -121,8 +109,10 @@ def create_q4_mechanism_tradeoff_scatter(
                 row['fan_vs_uniform_contrast'],
                 row['tpi_season_avg'],
                 s=size,
-                c=colors.get(mech, 'gray'),
-                alpha=0.7,
+                c=colors.get(mech, config.get_color('muted')),
+                alpha=0.78,
+                linewidths=0.35,
+                edgecolors=config.get_color('text'),
                 label=mech if i == 0 else "",
             )  # Only label in first subplot
 
@@ -135,7 +125,7 @@ def create_q4_mechanism_tradeoff_scatter(
                     xerr=xerr if xerr and np.isfinite(xerr) else None,
                     yerr=yerr if yerr and np.isfinite(yerr) else None,
                     fmt='none',
-                    ecolor=colors.get(mech, 'gray'),
+                    ecolor=colors.get(mech, config.get_color('muted')),
                     elinewidth=1,
                     alpha=0.35,
                     capsize=2,
@@ -153,10 +143,9 @@ def create_q4_mechanism_tradeoff_scatter(
 
         # Add ideal region
         ideal_rect = plt.Rectangle((0.6, 0.7), 0.3, 0.2, 
-                                  fill=False, edgecolor='gold', linewidth=2, linestyle='--')
+                                  fill=False, edgecolor=config.get_color('warning'), linewidth=2, linestyle='--')
         ax.add_patch(ideal_rect)
-        ax.text(0.75, 0.8, 'Ideal region', ha='center', va='center', 
-               bbox=dict(boxstyle='round', facecolor='gold', alpha=0.3))
+        ax.text(0.75, 0.8, 'Ideal region', ha='center', va='center', bbox=config.callout_bbox(kind='warn'))
 
         # Set consistent axis limits
         ax.set_xlim(0, 1)
@@ -164,9 +153,120 @@ def create_q4_mechanism_tradeoff_scatter(
 
     axes[0].legend(bbox_to_anchor=(1.05, 1), loc='upper left')
 
+    if showcase_pareto is not None and not showcase_pareto.empty and len(axes) > 0:
+        try:
+            ax0 = axes[0]
+            inset = ax0.inset_axes([0.05, 0.05, 0.46, 0.38])
+            inset.set_title('Showcase Pareto (baseline)', fontsize=9.0, fontweight='bold')
+
+            dfp = showcase_pareto.copy()
+            for c in ['tpi_season_avg', 'fan_vs_uniform_contrast']:
+                dfp[c] = pd.to_numeric(dfp.get(c, np.nan), errors='coerce')
+            dfp = dfp.dropna(subset=['tpi_season_avg', 'fan_vs_uniform_contrast']).copy()
+            if not dfp.empty:
+                inset.scatter(
+                    dfp['fan_vs_uniform_contrast'].to_numpy(dtype=float),
+                    dfp['tpi_season_avg'].to_numpy(dtype=float),
+                    s=40,
+                    facecolors='none',
+                    edgecolors=config.get_color('danger'),
+                    linewidths=1.0,
+                    alpha=0.85,
+                )
+                inset.set_xlim(0, 1)
+                inset.set_ylim(0, 1)
+                inset.grid(True, alpha=0.25)
+
+                config.add_callout(ax0, 'Showcase shown as contrast only', loc='lower left', kind='note')
+        except Exception:
+            pass
+
     plt.tight_layout()
 
     save_figure_with_config(fig, 'q4_mechanism_tradeoff_scatter', output_dirs, config)
+
+
+def create_q4_tradeoff_pareto_frontier_2d(
+    metrics_data: pd.DataFrame,
+    output_dirs: Dict[str, Path],
+    config: VisualizationConfig,
+) -> None:
+    outlier_levels = sorted(metrics_data['outlier_mult'].unique())
+    if len(outlier_levels) == 0:
+        return
+
+    ncols = len(outlier_levels)
+    fig, axes = plt.subplots(1, ncols, figsize=(4.2 * ncols, 4.0), sharey=True)
+    if ncols == 1:
+        axes = [axes]
+
+    mechanisms = sorted(metrics_data['mechanism'].unique())
+    colors = {m: config.get_color(m) for m in mechanisms}
+
+    for i, outlier_mult in enumerate(outlier_levels):
+        ax = axes[i]
+        data_subset = metrics_data[metrics_data['outlier_mult'] == outlier_mult]
+
+        mechanism_avg = data_subset.groupby('mechanism').agg({
+            'tpi_season_avg': 'mean',
+            'fan_vs_uniform_contrast': 'mean',
+            'robust_fail_rate': 'mean',
+        }).reset_index()
+        if mechanism_avg.empty:
+            ax.axis('off')
+            continue
+
+        mechanism_avg['robustness'] = 1.0 - pd.to_numeric(mechanism_avg['robust_fail_rate'], errors='coerce')
+
+        size = 40.0 + 220.0 * mechanism_avg['robustness'].clip(0, 1).to_numpy(dtype=float)
+        ax.scatter(
+            mechanism_avg['fan_vs_uniform_contrast'].to_numpy(dtype=float),
+            mechanism_avg['tpi_season_avg'].to_numpy(dtype=float),
+            s=size,
+            c=[colors.get(m, config.get_color('muted')) for m in mechanism_avg['mechanism'].astype(str)],
+            alpha=0.78,
+            linewidths=0.6,
+            edgecolors=config.get_color('text'),
+        )
+
+        for _, r in mechanism_avg.iterrows():
+            ax.annotate(
+                str(r['mechanism']).replace('_', '\n'),
+                (float(r['fan_vs_uniform_contrast']), float(r['tpi_season_avg'])),
+                xytext=(4, 3),
+                textcoords='offset points',
+                fontsize=8,
+            )
+
+        df2 = mechanism_avg[['fan_vs_uniform_contrast', 'tpi_season_avg']].copy()
+        df2 = df2.apply(pd.to_numeric, errors='coerce').dropna().sort_values('fan_vs_uniform_contrast')
+        xs = df2['fan_vs_uniform_contrast'].to_numpy(dtype=float)
+        ys = df2['tpi_season_avg'].to_numpy(dtype=float)
+        pareto_x: list[float] = []
+        pareto_y: list[float] = []
+        y_max = -1e9
+        for x, y in zip(xs, ys):
+            if y > y_max:
+                pareto_x.append(float(x))
+                pareto_y.append(float(y))
+                y_max = float(y)
+        if len(pareto_x) >= 2:
+            ax.plot(pareto_x, pareto_y, color=config.get_color('text'), linewidth=1.8, alpha=0.85, label='Pareto envelope')
+
+        ax.set_xlabel('Fan expression (fan vs uniform contrast)')
+        ax.set_title(f'outlier_mult={outlier_mult}', fontweight='bold')
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
+
+        if i == 0:
+            ax.set_ylabel('Technical Protection Index (TPI)')
+
+        if len(pareto_x) >= 2:
+            ax.legend(loc='lower right')
+
+    plt.tight_layout()
+    save_figure_with_config(fig, 'q4_tradeoff_pareto_frontier_2d', output_dirs, config)
+
 
 def create_q4_robustness_curves(
     metrics_data: pd.DataFrame,
@@ -186,8 +286,7 @@ def create_q4_robustness_curves(
 
     mechanisms = sorted(metrics_data['mechanism'].unique())
     outlier_values = sorted(metrics_data['outlier_mult'].unique())
-    palette = sns.color_palette('tab10', n_colors=max(len(mechanisms), 3))
-    colors = {m: palette[i % len(palette)] for i, m in enumerate(mechanisms)}
+    colors = {m: config.get_color(m) for m in mechanisms}
 
     # Left plot: Robustness failure rate curves
     for mech in mechanisms:
@@ -220,11 +319,11 @@ def create_q4_robustness_curves(
                 fail_rate_band.append(0)
 
         ax1.plot(outlier_values, fail_rates, 'o-', label=mech, 
-                linewidth=2, markersize=8, color=colors.get(mech, 'gray'))
+                linewidth=2, markersize=7, color=colors.get(mech, config.get_color('muted')))
         ax1.fill_between(outlier_values, 
                         np.array(fail_rates) - np.array(fail_rate_band),
                         np.array(fail_rates) + np.array(fail_rate_band),
-                        alpha=0.2, color=colors.get(mech, 'gray'))
+                        alpha=0.18, color=colors.get(mech, config.get_color('muted')))
 
     ax1.set_xlabel('Stress test intensity (outlier_mult)')
     ax1.set_ylabel('Robustness fail rate')
@@ -246,7 +345,7 @@ def create_q4_robustness_curves(
     for mech, ranks in robustness_ranks.items():
         if len(ranks) == len(outlier_values):
             ax2.plot(outlier_values, ranks, 'o-', label=mech, 
-                    linewidth=2, markersize=8, color=colors.get(mech, 'gray'))
+                    linewidth=2, markersize=7, color=colors.get(mech, config.get_color('muted')))
 
     ax2.set_xlabel('Stress test intensity (outlier_mult)')
     ax2.set_ylabel('Robustness rank (1=best)')
@@ -258,6 +357,7 @@ def create_q4_robustness_curves(
     plt.tight_layout()
 
     save_figure_with_config(fig, 'q4_robustness_curves', output_dirs, config)
+
 
 def create_q4_champion_uncertainty_analysis(
     metrics_data: pd.DataFrame,
@@ -276,8 +376,7 @@ def create_q4_champion_uncertainty_analysis(
     fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=config.get_figure_size('large_figure'))
 
     mechanism_order = sorted(metrics_data['mechanism'].unique())
-    palette = sns.color_palette('tab10', n_colors=max(len(mechanism_order), 3))
-    colors = {m: palette[i % len(palette)] for i, m in enumerate(mechanism_order)}
+    colors = {m: config.get_color(m) for m in mechanism_order}
 
     # Subplot 1: Champion entropy distribution
     entropy_data = [metrics_data[metrics_data['mechanism'] == mech]['champion_entropy'] 
@@ -286,7 +385,7 @@ def create_q4_champion_uncertainty_analysis(
 
     box_plot = ax1.boxplot(entropy_data, labels=mechanism_labels, patch_artist=True)
     for patch, mech in zip(box_plot['boxes'], mechanism_labels):
-        patch.set_facecolor(colors.get(mech, 'gray'))
+        patch.set_facecolor(colors.get(mech, config.get_color('muted')))
         patch.set_alpha(0.7)
 
     ax1.set_ylabel('Champion entropy')
@@ -300,7 +399,7 @@ def create_q4_champion_uncertainty_analysis(
 
     box_plot2 = ax2.boxplot(mode_prob_data, labels=mechanism_labels, patch_artist=True)
     for patch, mech in zip(box_plot2['boxes'], mechanism_labels):
-        patch.set_facecolor(colors.get(mech, 'gray'))
+        patch.set_facecolor(colors.get(mech, config.get_color('muted')))
         patch.set_alpha(0.7)
 
     ax2.set_ylabel('Champion mode probability')
@@ -312,7 +411,7 @@ def create_q4_champion_uncertainty_analysis(
     for mech in mechanism_labels:
         mech_data = metrics_data[metrics_data['mechanism'] == mech]
         ax3.scatter(mech_data['champion_entropy'], mech_data['tpi_season_avg'],
-                   c=colors.get(mech, 'gray'), label=mech, alpha=0.6, s=50)
+                   c=colors.get(mech, config.get_color('muted')), label=mech, alpha=0.65, s=55, edgecolors=config.get_color('text'), linewidths=0.25)
 
     ax3.set_xlabel('Champion entropy')
     ax3.set_ylabel('Technical Protection Index (TPI)')
@@ -336,7 +435,7 @@ def create_q4_champion_uncertainty_analysis(
         ideal_rates.append(ideal_rate)
 
     bars = ax4.bar(mechanism_labels, ideal_rates, 
-                   color=[colors.get(mech, 'gray') for mech in mechanism_labels], alpha=0.7)
+                   color=[colors.get(mech, config.get_color('muted')) for mech in mechanism_labels], alpha=0.7)
     ax4.set_ylabel('Share in ideal region')
     ax4.set_title('Share in ideal region (moderate randomness + high TPI)', fontweight='bold')
     ax4.tick_params(axis='x', rotation=45)
@@ -351,6 +450,7 @@ def create_q4_champion_uncertainty_analysis(
     plt.tight_layout()
 
     save_figure_with_config(fig, 'q4_champion_uncertainty_analysis', output_dirs, config)
+
 
 def create_q4_seasonal_variation_analysis(
     metrics_data: pd.DataFrame,
@@ -394,7 +494,8 @@ def create_q4_seasonal_variation_analysis(
     tpi_cv_matrix = np.array(tpi_cv_matrix)
 
     # Create heatmap
-    im1 = ax1.imshow(tpi_cv_matrix.T, cmap='YlOrRd', aspect='auto')
+    im1 = ax1.imshow(tpi_cv_matrix.T, cmap=config.get_cmap('heatmap'), aspect='auto')
+
     ax1.set_xticks(range(0, len(seasons), 5))
     ax1.set_xticklabels(seasons[::5])
     ax1.set_yticks(range(len(mechanisms_subset)))
@@ -428,7 +529,7 @@ def create_q4_seasonal_variation_analysis(
     width = 0.25
     metrics = ['TPI consistency', 'Fan expression consistency', 'Robustness consistency']
 
-    colors_metrics = ['steelblue', 'lightcoral', 'lightgreen']
+    colors_metrics = [config.get_color('primary'), config.get_color('rank'), config.get_color('percent_judge_save')]
 
     for i, metric in enumerate(metrics):
         values = [consistency_scores.get(mech, [0, 0, 0])[i] for mech in mechanisms_subset]
@@ -446,6 +547,7 @@ def create_q4_seasonal_variation_analysis(
     plt.tight_layout()
 
     save_figure_with_config(fig, 'q4_seasonal_variation_analysis', output_dirs, config)
+
 
 def create_q4_pareto_frontier(
     pareto_data: pd.DataFrame,
@@ -481,11 +583,14 @@ def create_q4_pareto_frontier(
     fig = plt.figure(figsize=config.get_figure_size('large_figure'))
     ax = fig.add_subplot(111, projection='3d')
 
+    base_fc = config.get_color('muted')
+    pareto_fc = config.get_color('danger')
+
     ax.scatter(
         df['tpi_season_avg'].astype(float),
         df['fan_vs_uniform_contrast'].astype(float),
         df['robustness_score'].astype(float),
-        c='lightgray',
+        c=base_fc,
         alpha=0.4,
         s=30,
         label='All configurations',
@@ -497,7 +602,7 @@ def create_q4_pareto_frontier(
             pareto_df['tpi_season_avg'].astype(float),
             pareto_df['fan_vs_uniform_contrast'].astype(float),
             pareto_df['robustness_score'].astype(float),
-            c='red',
+            c=pareto_fc,
             alpha=0.9,
             s=80,
             label='Pareto-optimal',
@@ -514,6 +619,7 @@ def create_q4_pareto_frontier(
     plt.tight_layout()
 
     save_figure_with_config(fig, 'q4_pareto_frontier', output_dirs, config)
+
 
 def create_q4_mechanism_recommendation(
     metrics_data: pd.DataFrame,
@@ -543,18 +649,19 @@ def create_q4_mechanism_recommendation(
 
     # Recommendation nodes
     recommendations = {
-        'rank': {'pos': (0.1, 0.5), 'text': 'Rank\nHigh TPI', 'color': 'lightblue'},
-        'percent_judge_save': {'pos': (0.5, 0.5), 'text': 'Percent + Judge Save\nBalanced', 'color': 'lightgreen'},
-        'percent': {'pos': (0.9, 0.5), 'text': 'Percent\nHigh fan expression', 'color': 'lightcoral'},
+        'rank': {'pos': (0.1, 0.5), 'text': 'Rank\nHigh TPI', 'color': config.get_color('rank')},
+        'percent_judge_save': {'pos': (0.5, 0.5), 'text': 'Percent + Judge Save\nBalanced', 'color': config.get_color('percent_judge_save')},
+        'percent': {'pos': (0.9, 0.5), 'text': 'Percent\nHigh fan expression', 'color': config.get_color('percent')},
     }
 
     # Draw decision nodes
     for node, props in decisions.items():
+        node_style = config.callout_bbox(kind='note')
         bbox = FancyBboxPatch((props['pos'][0] - props['size'][0]/2, 
                               props['pos'][1] - props['size'][1]/2),
                              props['size'][0], props['size'][1],
                              boxstyle="round,pad=0.01", 
-                             facecolor='lightyellow', edgecolor='black')
+                             facecolor=node_style['facecolor'], edgecolor=node_style['edgecolor'], linewidth=float(node_style['linewidth']), alpha=float(node_style['alpha']))
         ax.add_patch(bbox)
         ax.text(props['pos'][0], props['pos'][1], props['text'], 
                ha='center', va='center', fontsize=10)
@@ -564,7 +671,7 @@ def create_q4_mechanism_recommendation(
         bbox = FancyBboxPatch((props['pos'][0] - 0.08, props['pos'][1] - 0.04),
                              0.16, 0.08,
                              boxstyle="round,pad=0.01", 
-                             facecolor=props['color'], edgecolor='black')
+                             facecolor=props['color'], edgecolor=config.get_color('text'), linewidth=0.9, alpha=0.92)
         ax.add_patch(bbox)
         ax.text(props['pos'][0], props['pos'][1], props['text'], 
                ha='center', va='center', fontsize=10)
@@ -580,7 +687,7 @@ def create_q4_mechanism_recommendation(
     ]
 
     for start, end in connections:
-        ax.plot([start[0], end[0]], [start[1], end[1]], 'k-', alpha=0.7, linewidth=2)
+        ax.plot([start[0], end[0]], [start[1], end[1]], '-', color=config.get_color('muted'), alpha=0.85, linewidth=1.8)
 
     df = metrics_data.copy()
     df = df[df['outlier_mult'] == sorted(df['outlier_mult'].unique())[0]].copy()
@@ -619,6 +726,7 @@ def create_q4_mechanism_recommendation(
 
     save_figure_with_config(fig, 'q4_mechanism_recommendation', output_dirs, config)
 
+
 def create_q4_ml_feature_importance(
     feature_importance: pd.DataFrame,
     output_dirs: Dict[str, Path],
@@ -630,18 +738,21 @@ def create_q4_ml_feature_importance(
     df = df.sort_values('importance', ascending=False).head(15)
 
     fig, ax = plt.subplots(figsize=config.get_figure_size('single_column'))
-    ax.barh(df['feature'].astype(str), df['importance'].astype(float), color='steelblue', alpha=0.85)
+    ax.barh(df['feature'].astype(str), df['importance'].astype(float), color=config.get_color('muted'), alpha=0.85)
+
     ax.set_xlabel('Importance')
     ax.set_title('Showcase: Feature importance (Q4 meta-model)', fontweight='bold')
     ax.grid(True, alpha=0.3)
     plt.tight_layout()
     save_figure_with_config(fig, 'q4_ml_feature_importance', output_dirs, config)
 
+
 def generate_all_q4_visualizations(
     data_dir: Path,
     output_dirs: Dict[str, Path],
     config: VisualizationConfig,
-    showcase: bool = False
+    showcase: bool = False,
+    mode: str = 'paper'
 ) -> None:
 
     """
@@ -686,8 +797,18 @@ def generate_all_q4_visualizations(
 
         config.apply_matplotlib_style()
 
-        # Generate visualizations
-        create_q4_mechanism_tradeoff_scatter(metrics_data, output_dirs, config)
+        mode = str(mode).strip().lower()
+
+        pareto_df = None
+        try:
+            fp = data_dir / 'outputs' / 'tables' / 'showcase' / 'mcm2026c_q4_ml_pareto_frontier.csv'
+            if fp.exists():
+                pareto_df = pd.read_csv(fp)
+        except Exception:
+            pareto_df = None
+
+        # Generate visualizations (paper mode = 4 core figures)
+        create_q4_mechanism_tradeoff_scatter(metrics_data, pareto_df, output_dirs, config)
         print("✅ Created mechanism trade-off scatter plot")
 
         create_q4_robustness_curves(metrics_data, output_dirs, config)
@@ -696,13 +817,17 @@ def generate_all_q4_visualizations(
         create_q4_champion_uncertainty_analysis(metrics_data, output_dirs, config)
         print("✅ Created champion uncertainty analysis")
 
-        create_q4_seasonal_variation_analysis(metrics_data, output_dirs, config)
-        print("✅ Created seasonal variation analysis")
-
         create_q4_mechanism_recommendation(metrics_data, output_dirs, config)
         print("✅ Created mechanism recommendation decision tree")
 
-        if showcase:
+        if mode != 'paper':
+            create_q4_tradeoff_pareto_frontier_2d(metrics_data, output_dirs, config)
+            print("✅ Created 2D trade-off Pareto frontier")
+
+            create_q4_seasonal_variation_analysis(metrics_data, output_dirs, config)
+            print("✅ Created seasonal variation analysis")
+
+        if showcase and mode != 'paper':
             pareto_data = pd.read_csv(
                 data_dir
                 / 'outputs'
@@ -741,9 +866,16 @@ if __name__ == "__main__":
         help='Optional visualization ini file path (font/dpi overrides)',
     )
     parser.add_argument('--showcase', action='store_true', help='Also generate appendix-only figures')
+    parser.add_argument('--mode', type=str, default='paper', help='paper (4 core figs) or full')
     args = parser.parse_args()
 
     config = VisualizationConfig.from_ini(args.ini) if args.ini is not None else VisualizationConfig()
     output_structure = create_output_directories(args.data_dir / 'outputs' / 'figures', ['Q4'])
 
-    generate_all_q4_visualizations(args.data_dir, output_structure['Q4'], config, showcase=args.showcase)
+    generate_all_q4_visualizations(
+        args.data_dir,
+        output_structure['Q4'],
+        config,
+        showcase=args.showcase,
+        mode=str(args.mode),
+    )

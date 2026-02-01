@@ -31,18 +31,6 @@ except ImportError:  # pragma: no cover
     )
 
 
-# Set publication-quality style
-plt.rcParams.update({
-    'font.size': 12,
-    'axes.titlesize': 14,
-    'axes.labelsize': 12,
-    'xtick.labelsize': 10,
-    'ytick.labelsize': 10,
-    'legend.fontsize': 11,
-    'font.family': 'serif',
-    'figure.dpi': 300
-})
-
 def create_q3_judge_vs_fan_forest_plot(
     coeffs_data: pd.DataFrame,
     output_dirs: Dict[str, Path],
@@ -76,7 +64,7 @@ def create_q3_judge_vs_fan_forest_plot(
         ax1.errorbar(judge_key['estimate'], y_pos, 
                     xerr=[judge_key['estimate'] - judge_key['ci_low'],
                           judge_key['ci_high'] - judge_key['estimate']],
-                    fmt='o', capsize=5, capthick=2, color='steelblue', markersize=8)
+                    fmt='o', capsize=4, capthick=1.6, color=config.get_color('primary'), markersize=7)
         
         # Add significance markers
         for i, (_, row) in enumerate(judge_key.iterrows()):
@@ -87,12 +75,13 @@ def create_q3_judge_vs_fan_forest_plot(
             elif row['p_value'] < 0.05:
                 ax1.text(row['ci_high'] + 0.01, i, '*', va='center', fontweight='bold')
         
-        ax1.axvline(x=0, color='red', linestyle='--', alpha=0.7)
+        ax1.axvline(x=0, color=config.get_color('muted'), linestyle='--', alpha=0.85, linewidth=1.2)
+        
         ax1.set_yticks(y_pos)
         ax1.set_yticklabels([term.replace('C(industry)[T.', '').replace(']', '') 
                             for term in judge_key['term']])
         ax1.set_xlabel('Coefficient estimate')
-        ax1.set_title('Judge line (judge score percentile)', fontsize=14, fontweight='bold')
+        ax1.set_title('Judge line (technical)', fontsize=13, fontweight='bold')
         ax1.grid(True, alpha=0.3)
     
     # Right plot: Fan line (popularity)
@@ -104,7 +93,7 @@ def create_q3_judge_vs_fan_forest_plot(
         ax2.errorbar(fan_key['estimate'], y_pos, 
                     xerr=[fan_key['estimate'] - fan_key['ci_low'],
                           fan_key['ci_high'] - fan_key['estimate']],
-                    fmt='o', capsize=5, capthick=2, color='darkred', markersize=8)
+                    fmt='o', capsize=4, capthick=1.6, color=config.get_color('danger'), markersize=7)
         
         # Add significance markers
         for i, (_, row) in enumerate(fan_key.iterrows()):
@@ -115,12 +104,13 @@ def create_q3_judge_vs_fan_forest_plot(
             elif row['p_value'] < 0.05:
                 ax2.text(row['ci_high'] + 0.01, i, '*', va='center', fontweight='bold')
         
-        ax2.axvline(x=0, color='red', linestyle='--', alpha=0.7)
+        ax2.axvline(x=0, color=config.get_color('muted'), linestyle='--', alpha=0.85, linewidth=1.2)
+        
         ax2.set_yticks(y_pos)
         ax2.set_yticklabels([term.replace('C(industry)[T.', '').replace(']', '') 
                             for term in fan_key['term']])
         ax2.set_xlabel('Coefficient estimate')
-        ax2.set_title('Fan line (fan vote index)', fontsize=14, fontweight='bold')
+        ax2.set_title('Fan line (popularity)', fontsize=13, fontweight='bold')
         ax2.grid(True, alpha=0.3)
     
     plt.tight_layout()
@@ -177,27 +167,27 @@ def create_q3_effect_size_comparison(
         
         # Create bars
         bars1 = ax.bar(x - width/2, judge_effects, width, 
-                      label='Judge line', color='steelblue', alpha=0.8, edgecolor='black')
+                      label='Judge line', color=config.get_color('primary'), alpha=0.82, edgecolor=config.get_color('text'), linewidth=0.35)
         bars2 = ax.bar(x + width/2, fan_effects, width, 
-                      label='Fan line', color='lightcoral', alpha=0.8, edgecolor='black')
+                      label='Fan line', color=config.get_color('danger'), alpha=0.78, edgecolor=config.get_color('text'), linewidth=0.35)
         
         # Add value labels
         for i, (bar1, bar2) in enumerate(zip(bars1, bars2)):
             height1 = bar1.get_height()
             height2 = bar2.get_height()
             ax.text(bar1.get_x() + bar1.get_width()/2., height1 + 0.01 if height1 >= 0 else height1 - 0.01,
-                   f'{height1:.3f}', ha='center', va='bottom' if height1 >= 0 else 'top', fontsize=10)
+                   f'{height1:.3f}', ha='center', va='bottom' if height1 >= 0 else 'top', fontsize=10, color=config.get_color('text'))
             ax.text(bar2.get_x() + bar2.get_width()/2., height2 + 0.01 if height2 >= 0 else height2 - 0.01,
-                   f'{height2:.3f}', ha='center', va='bottom' if height2 >= 0 else 'top', fontsize=10)
+                   f'{height2:.3f}', ha='center', va='bottom' if height2 >= 0 else 'top', fontsize=10, color=config.get_color('text'))
         
         ax.set_xlabel('Term')
         ax.set_ylabel('Coefficient estimate')
-        ax.set_title('Effect size comparison: judge vs fan line', fontweight='bold')
+        ax.set_title('Effect size comparison (judge vs fan)', fontweight='bold')
         ax.set_xticks(x)
         ax.set_xticklabels([term.replace('C(industry)[T.', '').replace(']', '') 
                            for term in key_terms], rotation=45, ha='right')
         ax.legend()
-        ax.axhline(y=0, color='black', linestyle='-', alpha=0.3)
+        ax.axhline(y=0, color=config.get_color('muted'), linestyle='-', alpha=0.55)
         ax.grid(True, alpha=0.3)
     
     plt.tight_layout()
@@ -236,20 +226,20 @@ def create_q3_age_effect_curves(
         fan_age_effect = fan_age.iloc[0] * age_range + fan_age_sq.iloc[0] * (age_range ** 2)
         
         # Plot curves
-        ax.plot(age_range, judge_age_effect, 'b-', linewidth=3, label='Judge line', alpha=0.8)
-        ax.plot(age_range, fan_age_effect, 'r-', linewidth=3, label='Fan line', alpha=0.8)
+        ax.plot(age_range, judge_age_effect, '-', linewidth=2.6, label='Judge line', alpha=0.9, color=config.get_color('primary'))
+        ax.plot(age_range, fan_age_effect, '-', linewidth=2.6, label='Fan line', alpha=0.9, color=config.get_color('danger'))
         
         # Calculate and mark optimal ages
         if judge_age_sq.iloc[0] != 0:
             judge_optimal_age = -judge_age.iloc[0] / (2 * judge_age_sq.iloc[0])
             if 18 <= judge_optimal_age <= 65:
-                ax.axvline(x=judge_optimal_age, color='blue', linestyle='--', alpha=0.7,
+                ax.axvline(x=judge_optimal_age, color=config.get_color('primary'), linestyle='--', alpha=0.8,
                           label=f'Judge line optimal age: {judge_optimal_age:.1f} years')
         
         if len(fan_age) > 0 and len(fan_age_sq) > 0 and fan_age_sq.iloc[0] != 0:
             fan_optimal_age = -fan_age.iloc[0] / (2 * fan_age_sq.iloc[0])
             if 18 <= fan_optimal_age <= 65:
-                ax.axvline(x=fan_optimal_age, color='red', linestyle='--', alpha=0.7,
+                ax.axvline(x=fan_optimal_age, color=config.get_color('danger'), linestyle='--', alpha=0.8,
                           label=f'Fan line optimal age: {fan_optimal_age:.1f} years')
         
         ax.set_xlabel('Age')
@@ -300,7 +290,9 @@ def create_q3_industry_impact_heatmap(
             industry_matrix = np.array(industry_matrix)
             
             # Create heatmap
-            im = ax.imshow(industry_matrix.T, cmap='RdBu_r', aspect='auto', vmin=-0.1, vmax=0.1)
+            vmax = float(np.nanquantile(np.abs(industry_matrix).ravel(), 0.95)) if industry_matrix.size else 0.1
+            vmax = vmax if np.isfinite(vmax) and vmax > 0 else 0.1
+            im = ax.imshow(industry_matrix.T, cmap=config.get_cmap('corr'), aspect='auto', vmin=-vmax, vmax=vmax)
             
             # Set labels
             ax.set_xticks(range(len(industry_labels)))
@@ -312,7 +304,7 @@ def create_q3_industry_impact_heatmap(
             for i in range(len(industry_labels)):
                 for j in range(2):
                     text = ax.text(i, j, f'{industry_matrix[i, j]:.3f}',
-                                  ha="center", va="center", color="black", fontweight='bold')
+                                  ha="center", va="center", color=config.get_color('text'), fontweight='bold')
             
             # Add colorbar
             cbar = plt.colorbar(im)
@@ -350,13 +342,13 @@ def create_q3_mixed_effects_vs_ml(
     perf['model'] = perf['model'].astype(str)
 
     perf_sorted = perf.sort_values('r2_mean', ascending=False).head(10)
-    ax1.barh(perf_sorted['model'], perf_sorted['r2_mean'], color='steelblue', alpha=0.8)
+    ax1.barh(perf_sorted['model'], perf_sorted['r2_mean'], color=config.get_color('muted'), alpha=0.85)
     ax1.set_xlabel('R² (mean)')
     ax1.set_title('Showcase: Fan-index prediction (R²)', fontweight='bold')
     ax1.grid(True, alpha=0.3)
 
     perf_sorted2 = perf.sort_values('rmse_mean', ascending=True).head(10)
-    ax2.barh(perf_sorted2['model'], perf_sorted2['rmse_mean'], color='darkred', alpha=0.8)
+    ax2.barh(perf_sorted2['model'], perf_sorted2['rmse_mean'], color=config.get_color('danger'), alpha=0.75)
     ax2.set_xlabel('RMSE (mean)')
     ax2.set_title('Showcase: Fan-index prediction (RMSE)', fontweight='bold')
     ax2.grid(True, alpha=0.3)
@@ -388,7 +380,7 @@ def create_q3_uncertainty_propagation(
         sub = grid[grid['outcome'] == outcome].sort_values('n_refits')
         if len(sub) == 0:
             continue
-        ax.plot(sub['n_refits'], sub['ci_width_mean'], 'o-', linewidth=2, markersize=6, color='steelblue')
+        ax.plot(sub['n_refits'], sub['ci_width_mean'], 'o-', linewidth=2, markersize=6, color=config.get_color('primary'))
         ax.set_xlabel('n_refits')
         ax.set_ylabel('Mean CI width')
         ax.set_title(f'Showcase: CI width vs n_refits ({outcome})', fontweight='bold')
@@ -399,11 +391,121 @@ def create_q3_uncertainty_propagation(
     save_figure_with_config(fig, 'q3_uncertainty_propagation', output_dirs, config)
 
 
+def create_q3_refit_stability_bubble(
+    stability_data: pd.DataFrame,
+    showcase_baseline: pd.DataFrame | None,
+    output_dirs: Dict[str, Path],
+    config: VisualizationConfig,
+) -> None:
+    df = stability_data.copy()
+    if df.empty:
+        return
+
+    df = df[df["outcome"].astype(str) == "fan_vote_index_mean"].copy()
+    if df.empty:
+        return
+
+    df["iqr"] = pd.to_numeric(df["iqr"], errors="coerce")
+    df["sign_consistency"] = pd.to_numeric(df["sign_consistency"], errors="coerce")
+    df["estimate_median"] = pd.to_numeric(df["estimate_median"], errors="coerce")
+    df = df.dropna(subset=["iqr", "sign_consistency", "estimate_median"]).copy()
+    if df.empty:
+        return
+
+    def _clean_term(t: str) -> str:
+        s = str(t)
+        if s.startswith("C(industry)[T."):
+            return s.replace("C(industry)[T.", "")[:-1]
+        return s
+
+    df["term_clean"] = df["term"].astype(str).map(_clean_term)
+    df["term_group"] = np.where(df["term"].astype(str).str.startswith("C(industry)[T."), "industry", "core")
+
+    df = df.sort_values("iqr", ascending=False).head(24).copy()
+
+    fig, ax = plt.subplots(figsize=config.get_figure_size("double_column"))
+
+    colors = {"core": config.get_color('primary'), "industry": config.get_color('secondary')}
+
+    size = np.abs(df["estimate_median"].to_numpy(dtype=float))
+    size = 40.0 + 220.0 * (size / (np.nanmax(size) if np.nanmax(size) > 0 else 1.0))
+
+    ax.scatter(
+        df["sign_consistency"].to_numpy(dtype=float),
+        df["iqr"].to_numpy(dtype=float),
+        s=size,
+        c=[colors.get(g, config.get_color('muted')) for g in df["term_group"].astype(str)],
+        alpha=0.78,
+        linewidths=0.6,
+        edgecolors=config.get_color('text'),
+    )
+
+    for _, r in df.head(8).iterrows():
+        ax.annotate(
+            str(r["term_clean"]),
+            (float(r["sign_consistency"]), float(r["iqr"])),
+            xytext=(4, 3),
+            textcoords="offset points",
+            fontsize=8,
+            color=config.get_color('text'),
+        )
+
+    ax.set_xlabel("Sign consistency across refits")
+    ax.set_ylabel("Coefficient uncertainty (IQR: q95 - q05)")
+    ax.set_title("Q3 fan-line refit stability (direction vs uncertainty)", fontweight="bold")
+    ax.set_xlim(0.5, 1.02)
+    ax.set_ylim(bottom=0.0)
+
+    handles = [
+        plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=colors["core"], markeredgecolor=config.get_color('text'), markersize=8, label="Core terms"),
+        plt.Line2D([0], [0], marker="o", color="w", markerfacecolor=colors["industry"], markeredgecolor=config.get_color('text'), markersize=8, label="Industry terms"),
+    ]
+    ax.legend(handles=handles, loc="upper left")
+
+    if showcase_baseline is not None and not showcase_baseline.empty:
+        try:
+            inset = ax.inset_axes([0.62, 0.64, 0.36, 0.30])
+            inset.set_title('Showcase baseline', fontsize=9.0, fontweight='bold')
+            sb = showcase_baseline.copy()
+            sb['r2_mean'] = pd.to_numeric(sb.get('r2_mean', np.nan), errors='coerce')
+            sb['rmse_mean'] = pd.to_numeric(sb.get('rmse_mean', np.nan), errors='coerce')
+
+            rows: list[tuple[str, float]] = []
+            if 'model' in sb.columns and 'r2_mean' in sb.columns:
+                best = sb.sort_values('r2_mean', ascending=False).head(1)
+                if len(best) and np.isfinite(float(best['r2_mean'].iloc[0])):
+                    rows.append((f"ML best R² ({str(best['model'].iloc[0])})", float(best['r2_mean'].iloc[0])))
+
+            if 'dl_r2_mean' in sb.columns:
+                rows.append(('DL best R²', float(sb['dl_r2_mean'].iloc[0])))
+
+            if rows:
+                names = [a for a, _ in rows]
+                vals = [b for _, b in rows]
+                y0 = np.arange(len(vals))
+                inset.barh(y0, vals, color=config.get_color('muted'), alpha=0.85)
+                inset.set_yticks(y0)
+                inset.set_yticklabels(names, fontsize=8.0)
+                inset.set_xlim(-1.0, 1.0)
+                inset.grid(True, alpha=0.25)
+                for i, v in enumerate(vals):
+                    if np.isfinite(v):
+                        inset.text(float(v) + 0.03, i, f"{float(v):.2f}", va='center', fontsize=8.0)
+
+                config.add_callout(ax, 'Showcase shown as contrast only', loc='lower left', kind='note')
+        except Exception:
+            pass
+
+    plt.tight_layout()
+    save_figure_with_config(fig, "q3_refit_stability_bubble", output_dirs, config)
+
+
 def generate_all_q3_visualizations(
     data_dir: Path,
     output_dirs: Dict[str, Path],
     config: VisualizationConfig,
-    showcase: bool = False
+    showcase: bool = False,
+    mode: str = 'paper'
 ) -> None:
     """
     Generate all Q3 visualizations.
@@ -422,7 +524,22 @@ def generate_all_q3_visualizations(
 
         config.apply_matplotlib_style()
         
-        # Generate visualizations
+        mode = str(mode).strip().lower()
+
+        baseline_df = None
+        try:
+            ml_path = data_dir / 'outputs' / 'tables' / 'showcase' / 'mcm2026c_q3_ml_fan_index_baselines_cv_summary.csv'
+            dl_path = data_dir / 'outputs' / 'tables' / 'showcase' / 'mcm2026c_q3_dl_fan_regression_nets_summary.csv'
+            if ml_path.exists():
+                baseline_df = pd.read_csv(ml_path)
+                if dl_path.exists():
+                    dl = pd.read_csv(dl_path)
+                    if 'r2_mean' in dl.columns:
+                        baseline_df = baseline_df.assign(dl_r2_mean=float(dl['r2_mean'].iloc[0]))
+        except Exception:
+            baseline_df = None
+
+        # Generate visualizations (paper mode = 4 core figures)
         create_q3_judge_vs_fan_forest_plot(coeffs_data, output_dirs, config)
         print("✅ Created judge vs fan forest plot")
         
@@ -431,11 +548,18 @@ def generate_all_q3_visualizations(
         
         create_q3_age_effect_curves(coeffs_data, output_dirs, config)
         print("✅ Created age effect curves")
-        
-        create_q3_industry_impact_heatmap(coeffs_data, output_dirs, config)
-        print("✅ Created industry impact heatmap")
 
-        if showcase:
+        stability_path = data_dir / 'outputs' / 'tables' / 'mcm2026c_q3_fan_refit_stability.csv'
+        if stability_path.exists():
+            stab = pd.read_csv(stability_path)
+            create_q3_refit_stability_bubble(stab, baseline_df, output_dirs, config)
+            print("✅ Created refit stability bubble plot")
+
+        if mode != 'paper':
+            create_q3_industry_impact_heatmap(coeffs_data, output_dirs, config)
+            print("✅ Created industry impact heatmap")
+
+        if showcase and mode != 'paper':
             ml_summary = pd.read_csv(
                 data_dir
                 / 'outputs'
@@ -481,9 +605,16 @@ if __name__ == "__main__":
         help='Optional visualization ini file path (font/dpi overrides)',
     )
     parser.add_argument('--showcase', action='store_true', help='Also generate appendix-only figures')
+    parser.add_argument('--mode', type=str, default='paper', help='paper (4 core figs) or full')
     args = parser.parse_args()
 
     config = VisualizationConfig.from_ini(args.ini) if args.ini is not None else VisualizationConfig()
     output_structure = create_output_directories(args.data_dir / 'outputs' / 'figures', ['Q3'])
 
-    generate_all_q3_visualizations(args.data_dir, output_structure['Q3'], config, showcase=args.showcase)
+    generate_all_q3_visualizations(
+        args.data_dir,
+        output_structure['Q3'],
+        config,
+        showcase=args.showcase,
+        mode=str(args.mode),
+    )

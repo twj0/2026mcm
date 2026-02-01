@@ -43,7 +43,7 @@ def create_q1_uncertainty_heatmap(
         config: Configuration object
     """
     figsize = config.get_figure_size('double_column')
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=figsize, sharey=True)
     
     # Prepare data for heatmaps
     ess_pivot = uncertainty_data.pivot_table(
@@ -52,25 +52,37 @@ def create_q1_uncertainty_heatmap(
     evidence_pivot = uncertainty_data.pivot_table(
         values='evidence', index='season', columns='week', fill_value=np.nan
     )
+
+    exit_pivot = uncertainty_data.pivot_table(values='n_exit', index='season', columns='week', fill_value=0)
     
     # Left heatmap: ESS Ratio
-    sns.heatmap(ess_pivot, ax=ax1, cmap='RdYlBu_r', vmin=0, vmax=1, 
+    sns.heatmap(ess_pivot, ax=ax1, cmap=config.get_cmap('diverging'), vmin=0, vmax=1, 
                 cbar_kws={'label': 'ESS Ratio'}, annot=False)
     ax1.set_title('ESS Ratio (Lower = Higher Uncertainty)', fontweight='bold')
     ax1.set_xlabel('Week')
     ax1.set_ylabel('Season')
     
     # Right heatmap: Evidence
-    sns.heatmap(evidence_pivot, ax=ax2, cmap='viridis', vmin=0, vmax=1,
+    sns.heatmap(evidence_pivot, ax=ax2, cmap=config.get_cmap('sequential'), vmin=0, vmax=1,
                 cbar_kws={'label': 'Evidence'}, annot=False)
     ax2.set_title('Evidence (Brighter = Stronger Constraints)', fontweight='bold')
     ax2.set_xlabel('Week')
     ax2.set_ylabel('Season')
+
+    try:
+        mask = exit_pivot.to_numpy(dtype=float) > 0
+        yy, xx = np.where(mask)
+        ax1.scatter(xx + 0.5, yy + 0.5, s=10, marker='s', c=config.get_color('muted'), alpha=0.40, linewidths=0)
+        ax2.scatter(xx + 0.5, yy + 0.5, s=10, marker='s', c=config.get_color('muted'), alpha=0.40, linewidths=0)
+        ax1.text(0.01, 0.01, 'squares = elimination weeks', transform=ax1.transAxes, fontsize=8)
+    except Exception:
+        pass
     
     plt.tight_layout()
     
     # Save using config
     save_figure_with_config(fig, 'q1_uncertainty_heatmap', output_dirs, config)
+
 
 def create_q1_fan_share_intervals(
     posterior_data: pd.DataFrame,
@@ -127,7 +139,7 @@ def create_q1_fan_share_intervals(
         ax1.errorbar(x_pos, high_week_data['fan_share_mean'],
                     yerr=[high_week_data['fan_share_mean'] - high_week_data['fan_share_p05'],
                           high_week_data['fan_share_p95'] - high_week_data['fan_share_mean']],
-                    fmt='o', capsize=5, capthick=2, markersize=8, color='steelblue')
+                    fmt='o', capsize=5, capthick=2, markersize=8, color=config.get_color('warning'))
         
         # Highlight eliminated contestants
         eliminated_mask = high_week_data['eliminated_this_week']
@@ -135,7 +147,7 @@ def create_q1_fan_share_intervals(
             eliminated_indices = [i for i, elim in enumerate(eliminated_mask) if elim]
             ax1.scatter([x_pos[i] for i in eliminated_indices], 
                        [high_week_data.iloc[i]['fan_share_mean'] for i in eliminated_indices],
-                       color='red', s=100, marker='x', linewidth=3, label='Eliminated')
+                       color=config.get_color('danger'), s=100, marker='x', linewidth=3, label='Eliminated')
         
         ax1.set_xticks(x_pos)
         ax1.set_xticklabels([name[:15] + '...' if len(name) > 15 else name 
@@ -162,7 +174,7 @@ def create_q1_fan_share_intervals(
         ax2.errorbar(x_pos, low_week_data['fan_share_mean'],
                     yerr=[low_week_data['fan_share_mean'] - low_week_data['fan_share_p05'],
                           low_week_data['fan_share_p95'] - low_week_data['fan_share_mean']],
-                    fmt='o', capsize=5, capthick=2, markersize=8, color='darkgreen')
+                    fmt='o', capsize=5, capthick=2, markersize=8, color=config.get_color('primary'))
         
         # Highlight eliminated contestants
         eliminated_mask = low_week_data['eliminated_this_week']
@@ -170,7 +182,7 @@ def create_q1_fan_share_intervals(
             eliminated_indices = [i for i, elim in enumerate(eliminated_mask) if elim]
             ax2.scatter([x_pos[i] for i in eliminated_indices], 
                        [low_week_data.iloc[i]['fan_share_mean'] for i in eliminated_indices],
-                       color='red', s=100, marker='x', linewidth=3, label='Eliminated')
+                       color=config.get_color('danger'), s=100, marker='x', linewidth=3, label='Eliminated')
         
         ax2.set_xticks(x_pos)
         ax2.set_xticklabels([name[:15] + '...' if len(name) > 15 else name 
@@ -190,6 +202,7 @@ def create_q1_fan_share_intervals(
     
     # Save using config
     save_figure_with_config(fig, 'q1_fan_share_intervals', output_dirs, config)
+
 
 def create_q1_judge_vs_fan_scatter(
     posterior_data: pd.DataFrame,
@@ -224,12 +237,28 @@ def create_q1_judge_vs_fan_scatter(
     not_eliminated = merged_data[~merged_data['eliminated_this_week']]
     
     # Plot non-eliminated contestants
-    ax.scatter(not_eliminated['judge_score_pct'], not_eliminated['fan_share_mean'],
-              alpha=0.6, s=50, c='steelblue', label='Not eliminated')
+    ax.scatter(
+        not_eliminated['judge_score_pct'],
+        not_eliminated['fan_share_mean'],
+        alpha=0.65,
+        s=50,
+        c=config.get_color('primary'),
+        edgecolors='#111827',
+        linewidths=0.25,
+        label='Not eliminated',
+    )
     
     # Plot eliminated contestants
-    ax.scatter(eliminated['judge_score_pct'], eliminated['fan_share_mean'],
-              alpha=0.8, s=80, c='red', marker='x', linewidth=2, label='Eliminated')
+    ax.scatter(
+        eliminated['judge_score_pct'],
+        eliminated['fan_share_mean'],
+        alpha=0.90,
+        s=90,
+        c=config.get_color('danger'),
+        marker='x',
+        linewidth=2.5,
+        label='Eliminated',
+    )
     
     # Add diagonal reference line
     ax.plot([0, 1], [0, 1], 'k--', alpha=0.3, label='Judge = Fan (reference)')
@@ -249,16 +278,24 @@ def create_q1_judge_vs_fan_scatter(
     
     # Annotate a few extreme cases
     for _, row in high_judge_low_fan.head(3).iterrows():
-        ax.annotate(f"{row['celebrity_name'][:10]}...", 
-                   (row['judge_score_pct'], row['fan_share_mean']),
-                   xytext=(5, 5), textcoords='offset points', fontsize=9,
-                   bbox=dict(boxstyle='round,pad=0.3', facecolor='lightgreen', alpha=0.7))
+        ax.annotate(
+            f"{row['celebrity_name'][:10]}...",
+            (row['judge_score_pct'], row['fan_share_mean']),
+            xytext=(5, 5),
+            textcoords='offset points',
+            fontsize=9,
+            bbox=config.callout_bbox(kind='note'),
+        )
     
     for _, row in low_judge_high_fan.head(3).iterrows():
-        ax.annotate(f"{row['celebrity_name'][:10]}...", 
-                   (row['judge_score_pct'], row['fan_share_mean']),
-                   xytext=(5, 5), textcoords='offset points', fontsize=9,
-                   bbox=dict(boxstyle='round,pad=0.3', facecolor='lightgreen', alpha=0.7))
+        ax.annotate(
+            f"{row['celebrity_name'][:10]}...",
+            (row['judge_score_pct'], row['fan_share_mean']),
+            xytext=(5, 5),
+            textcoords='offset points',
+            fontsize=9,
+            bbox=config.callout_bbox(kind='note'),
+        )
     
     ax.set_xlabel('Judge Score Share (Technical Line)')
     ax.set_ylabel('Estimated Fan Vote Share (Popularity Line)')
@@ -271,6 +308,7 @@ def create_q1_judge_vs_fan_scatter(
     
     # Save using config
     save_figure_with_config(fig, 'q1_judge_vs_fan_scatter', output_dirs, config)
+
 
 def create_q1_mechanism_comparison(
     posterior_data: pd.DataFrame,
@@ -317,8 +355,15 @@ def create_q1_mechanism_comparison(
         percent_data = week_data[week_data['mechanism'] == 'percent'].sort_values('fan_share_mean', ascending=False)
         if len(percent_data) > 0:
             x_pos = range(len(percent_data))
-            bars1 = ax1.bar(x_pos, percent_data['fan_share_mean'], 
-                           color='lightblue', alpha=0.8, edgecolor='black')
+            bars1 = ax1.bar(
+                x_pos,
+                percent_data['fan_share_mean'],
+                color=config.get_color('percent'),
+                alpha=0.82,
+                edgecolor='#111827',
+                linewidth=0.35,
+            )
+            
             ax1.set_title(f'Percent (Season {season}, Week {week})', fontweight='bold')
             ax1.set_ylabel('Estimated Fan Vote Share')
             
@@ -331,8 +376,9 @@ def create_q1_mechanism_comparison(
             # Highlight eliminated contestants
             for j, (_, row) in enumerate(percent_data.iterrows()):
                 if row['eliminated_this_week']:
-                    bars1[j].set_color('red')
+                    bars1[j].set_color(config.get_color('danger'))
                     bars1[j].set_alpha(0.9)
+        
         else:
             ax1.axis('off')
             ax1.text(
@@ -349,8 +395,15 @@ def create_q1_mechanism_comparison(
         rank_data = week_data[week_data['mechanism'] == 'rank'].sort_values('fan_share_mean', ascending=False)
         if len(rank_data) > 0:
             x_pos = range(len(rank_data))
-            bars2 = ax2.bar(x_pos, rank_data['fan_share_mean'], 
-                           color='lightcoral', alpha=0.8, edgecolor='black')
+            bars2 = ax2.bar(
+                x_pos,
+                rank_data['fan_share_mean'],
+                color=config.get_color('rank'),
+                alpha=0.82,
+                edgecolor='#111827',
+                linewidth=0.35,
+            )
+            
             ax2.set_title(f'Rank (Season {season}, Week {week})', fontweight='bold')
             ax2.set_ylabel('Estimated Fan Vote Share')
             
@@ -363,8 +416,9 @@ def create_q1_mechanism_comparison(
             # Highlight eliminated contestants
             for j, (_, row) in enumerate(rank_data.iterrows()):
                 if row['eliminated_this_week']:
-                    bars2[j].set_color('darkred')
+                    bars2[j].set_color(config.get_color('danger'))
                     bars2[j].set_alpha(0.9)
+        
         else:
             ax2.axis('off')
             ax2.text(
@@ -381,6 +435,7 @@ def create_q1_mechanism_comparison(
     
     # Save using config
     save_figure_with_config(fig, 'q1_mechanism_comparison', output_dirs, config)
+
 
 def create_q1_statistical_vs_ml_comparison(
     ml_summary: pd.DataFrame,
@@ -442,10 +497,10 @@ def create_q1_statistical_vs_ml_comparison(
     bayesian_scores += bayesian_scores[:1]
     ml_avg_scores += ml_avg_scores[:1]
     
-    ax2.plot(angles, bayesian_scores, 'o-', linewidth=3, label='Structured Inference', color='gold')
-    ax2.fill(angles, bayesian_scores, alpha=0.25, color='gold')
-    ax2.plot(angles, ml_avg_scores, 'o-', linewidth=3, label='ML Baselines', color='lightblue')
-    ax2.fill(angles, ml_avg_scores, alpha=0.25, color='lightblue')
+    ax2.plot(angles, bayesian_scores, 'o-', linewidth=2.6, label='Structured inference', color=config.get_color('primary'))
+    ax2.fill(angles, bayesian_scores, alpha=0.18, color=config.get_color('primary'))
+    ax2.plot(angles, ml_avg_scores, 'o-', linewidth=2.6, label='Showcase ML baselines', color=config.get_color('muted'))
+    ax2.fill(angles, ml_avg_scores, alpha=0.12, color=config.get_color('muted'))
     
     ax2.set_xticks(angles[:-1])
     ax2.set_xticklabels(categories)
@@ -459,11 +514,194 @@ def create_q1_statistical_vs_ml_comparison(
     # Save using config
     save_figure_with_config(fig, 'q1_statistical_vs_ml_comparison', output_dirs, config)
 
+
+def create_q1_mechanism_sensitivity_overview(
+    sensitivity_data: pd.DataFrame,
+    showcase_baseline: pd.DataFrame | None,
+    output_dirs: Dict[str, Path],
+    config: VisualizationConfig,
+) -> None:
+    df = sensitivity_data.copy()
+    if df.empty:
+        return
+
+    df['tv_distance'] = pd.to_numeric(df['tv_distance'], errors='coerce')
+    df['rank_corr'] = pd.to_numeric(df['rank_corr'], errors='coerce')
+    df['n_contestants'] = pd.to_numeric(df.get('n_contestants', np.nan), errors='coerce')
+    df = df.dropna(subset=['season', 'week', 'tv_distance', 'rank_corr']).copy()
+    if df.empty:
+        return
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=config.get_figure_size('double_column'))
+
+    tv_pivot = df.pivot_table(values='tv_distance', index='season', columns='week', fill_value=np.nan)
+    vmax = float(np.nanquantile(df['tv_distance'].to_numpy(dtype=float), 0.99)) if len(df) else 1.0
+    vmax = vmax if np.isfinite(vmax) and vmax > 0 else 1.0
+    sns.heatmap(
+        tv_pivot,
+        ax=ax1,
+        cmap=config.get_cmap('heatmap'),
+        vmin=0,
+        vmax=vmax,
+        cbar_kws={'label': 'TV distance'},
+        annot=False,
+    )
+    ax1.set_title('Percent vs Rank sensitivity (TV distance)', fontweight='bold')
+    ax1.set_xlabel('Week')
+    ax1.set_ylabel('Season')
+
+    s = df['n_contestants']
+    s = s.fillna(s.median())
+    size = 20.0 + 80.0 * (s.to_numpy(dtype=float) / max(float(s.max()), 1.0))
+
+    sc = ax2.scatter(
+        df['rank_corr'].to_numpy(dtype=float),
+        df['tv_distance'].to_numpy(dtype=float),
+        s=size,
+        c=df['season'].to_numpy(dtype=float),
+        cmap=config.get_cmap('sequential'),
+        alpha=0.75,
+        linewidths=0.3,
+        edgecolors='#222222',
+    )
+    ax2.set_xlabel('Rank correlation (percent vs rank)')
+    ax2.set_ylabel('TV distance (percent vs rank)')
+    ax2.set_title('Global summary', fontweight='bold')
+    ax2.set_ylim(bottom=0.0)
+    cbar = plt.colorbar(sc, ax=ax2)
+    cbar.set_label('Season')
+
+    top = df.sort_values('tv_distance', ascending=False).head(6)
+    for _, r in top.iterrows():
+        ax2.annotate(
+            f"S{int(r['season'])}W{int(r['week'])}",
+            (float(r['rank_corr']), float(r['tv_distance'])),
+            xytext=(4, 3),
+            textcoords='offset points',
+            fontsize=8,
+        )
+
+    plt.tight_layout()
+
+    if showcase_baseline is not None and not showcase_baseline.empty:
+        try:
+            inset = ax2.inset_axes([0.06, 0.68, 0.38, 0.28])
+            inset.set_title('Showcase baseline', fontsize=9.0, fontweight='bold')
+            sb = showcase_baseline.copy()
+            sb['roc_auc_mean'] = pd.to_numeric(sb.get('roc_auc_mean', np.nan), errors='coerce')
+            sb['average_precision_mean'] = pd.to_numeric(sb.get('average_precision_mean', np.nan), errors='coerce')
+
+            rows: list[tuple[str, float]] = []
+            if 'model' in sb.columns and 'roc_auc_mean' in sb.columns:
+                for _, r in sb.iterrows():
+                    if str(r.get('model', '')).strip() == 'logreg':
+                        rows.append(('ML logreg ROC-AUC', float(r['roc_auc_mean'])))
+                        break
+
+            if 'dl_roc_auc_mean' in sb.columns:
+                rows.append(('DL tab-transformer ROC-AUC', float(sb['dl_roc_auc_mean'].iloc[0])))
+
+            if rows:
+                names = [a for a, _ in rows]
+                vals = [b for _, b in rows]
+                y = np.arange(len(vals))
+                inset.barh(y, vals, color=config.get_color('muted'), alpha=0.85)
+                inset.set_yticks(y)
+                inset.set_yticklabels(names, fontsize=8.0)
+                inset.set_xlim(0.0, 1.0)
+                inset.grid(True, alpha=0.25)
+                for i, v in enumerate(vals):
+                    if np.isfinite(v):
+                        inset.text(float(v) + 0.01, i, f"{float(v):.2f}", va='center', fontsize=8.0)
+
+                config.add_callout(ax2, 'Shown as contrast only (different task)', loc='lower left', kind='note')
+        except Exception:
+            pass
+
+    save_figure_with_config(fig, 'q1_mechanism_sensitivity_overview', output_dirs, config)
+
+
+def create_q1_error_diagnostics_overview(
+    diagnostics_data: pd.DataFrame,
+    output_dirs: Dict[str, Path],
+    config: VisualizationConfig,
+) -> None:
+    df = diagnostics_data.copy()
+    if df.empty:
+        return
+
+    df = df[pd.to_numeric(df['n_exit'], errors='coerce') > 0].copy()
+    if df.empty:
+        return
+
+    df['fan_share_width_mean'] = pd.to_numeric(df['fan_share_width_mean'], errors='coerce')
+    df['observed_exit_prob_at_posterior_mean'] = pd.to_numeric(df['observed_exit_prob_at_posterior_mean'], errors='coerce')
+    df['judge_fan_rank_corr'] = pd.to_numeric(df['judge_fan_rank_corr'], errors='coerce')
+    df['match_pred'] = pd.to_numeric(df['match_pred'], errors='coerce')
+    df['n_active'] = pd.to_numeric(df['n_active'], errors='coerce')
+
+    df = df.dropna(subset=['fan_share_width_mean', 'observed_exit_prob_at_posterior_mean', 'judge_fan_rank_corr']).copy()
+    if df.empty:
+        return
+
+    fig, axes = plt.subplots(1, 2, figsize=config.get_figure_size('double_column'), sharey=True)
+
+    last_sc = None
+    for ax, mech in zip(axes, ['percent', 'rank']):
+        sub = df[df['mechanism'].astype(str) == mech].copy()
+        if sub.empty:
+            ax.axis('off')
+            continue
+
+        na = sub['n_active']
+        na = na.fillna(na.median())
+        size = 20.0 + 80.0 * (na.to_numpy(dtype=float) / max(float(na.max()), 1.0))
+
+        last_sc = ax.scatter(
+            sub['fan_share_width_mean'].to_numpy(dtype=float),
+            sub['observed_exit_prob_at_posterior_mean'].to_numpy(dtype=float),
+            s=size,
+            c=sub['judge_fan_rank_corr'].to_numpy(dtype=float),
+            cmap='RdBu_r',
+            vmin=-1,
+            vmax=1,
+            alpha=0.78,
+            linewidths=0.3,
+            edgecolors='#222222',
+        )
+
+        bad = sub[sub['match_pred'] == 0]
+        if not bad.empty:
+            ax.scatter(
+                bad['fan_share_width_mean'].to_numpy(dtype=float),
+                bad['observed_exit_prob_at_posterior_mean'].to_numpy(dtype=float),
+                s=90,
+                facecolors='none',
+                edgecolors='#111111',
+                linewidths=1.2,
+                alpha=0.95,
+            )
+
+        ax.set_title(f"{mech}: consistency vs uncertainty", fontweight='bold')
+        ax.set_xlabel('Mean posterior interval width (fan share)')
+        ax.set_ylim(0.0, 1.02)
+
+    axes[0].set_ylabel('Observed elimination probability at posterior mean')
+
+    if last_sc is not None:
+        cbar = plt.colorbar(last_sc, ax=axes, location='right', fraction=0.05, pad=0.02)
+        cbar.set_label('Judge–fan rank corr')
+
+    plt.tight_layout()
+    save_figure_with_config(fig, 'q1_error_diagnostics_overview', output_dirs, config)
+
+
 def generate_all_q1_visualizations(
     data_dir: Path,
     output_dirs: Dict[str, Path],
     config: VisualizationConfig,
-    showcase: bool = False
+    showcase: bool = False,
+    mode: str = 'paper'
 ) -> None:
     """
     Generate all Q1 visualizations.
@@ -473,6 +711,7 @@ def generate_all_q1_visualizations(
         output_dirs: Dictionary with 'tiff' and 'eps' paths
         config: Configuration object
         showcase: Whether to generate showcase-only figures
+        mode: paper (4 core figs) or full
     """
     print("🎨 Generating Q1 visualizations...")
     
@@ -499,11 +738,38 @@ def generate_all_q1_visualizations(
         
         create_q1_judge_vs_fan_scatter(posterior_data, weekly_panel, output_dirs, config)
         print("✅ Created judge vs fan scatter plot")
-        
-        create_q1_mechanism_comparison(posterior_data, output_dirs, config)
-        print("✅ Created mechanism comparison plot")
 
-        if showcase:
+        baseline_df = None
+        try:
+            ml_path = data_dir / 'outputs' / 'tables' / 'showcase' / 'mcm2026c_q1_ml_elimination_baselines_cv_summary.csv'
+            dl_path = data_dir / 'outputs' / 'tables' / 'showcase' / 'mcm2026c_q1_dl_elimination_transformer_summary.csv'
+            if ml_path.exists():
+                ml = pd.read_csv(ml_path)
+                baseline_df = ml
+                if dl_path.exists():
+                    dl = pd.read_csv(dl_path)
+                    if 'roc_auc_mean' in dl.columns:
+                        baseline_df = baseline_df.assign(dl_roc_auc_mean=float(dl['roc_auc_mean'].iloc[0]))
+        except Exception:
+            baseline_df = None
+
+        sens_path = data_dir / 'outputs' / 'tables' / 'mcm2026c_q1_mechanism_sensitivity_week.csv'
+        if sens_path.exists():
+            sens = pd.read_csv(sens_path)
+            create_q1_mechanism_sensitivity_overview(sens, baseline_df, output_dirs, config)
+            print("✅ Created mechanism sensitivity overview")
+
+        if mode != 'paper':
+            create_q1_mechanism_comparison(posterior_data, output_dirs, config)
+            print("✅ Created mechanism comparison plot")
+
+            diag_path = data_dir / 'outputs' / 'tables' / 'mcm2026c_q1_error_diagnostics_week.csv'
+            if diag_path.exists():
+                diag = pd.read_csv(diag_path)
+                create_q1_error_diagnostics_overview(diag, output_dirs, config)
+                print("✅ Created error diagnostics overview")
+        
+        if showcase and mode != 'paper':
             ml_summary = pd.read_csv(
                 data_dir
                 / 'outputs'
@@ -539,9 +805,16 @@ if __name__ == "__main__":
         help='Optional visualization ini file path (font/dpi overrides)',
     )
     parser.add_argument('--showcase', action='store_true', help='Also generate appendix-only figures')
+    parser.add_argument('--mode', type=str, default='paper', help='paper (4 core figs) or full')
     args = parser.parse_args()
 
     config = VisualizationConfig.from_ini(args.ini) if args.ini is not None else VisualizationConfig()
     output_structure = create_output_directories(args.data_dir / 'outputs' / 'figures', ['Q1'])
 
-    generate_all_q1_visualizations(args.data_dir, output_structure['Q1'], config, showcase=args.showcase)
+    generate_all_q1_visualizations(
+        args.data_dir,
+        output_structure['Q1'],
+        config,
+        showcase=args.showcase,
+        mode=str(args.mode),
+    )
