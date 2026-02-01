@@ -3,20 +3,59 @@
 \subsection{Background}
 %在保持原题主体思想不变下，可以自己组织词句对问题进行描述，主要数据可以直接复制，对所提出的问题部分基本原样复制。篇幅建议不要超过一页。大部分文字提炼自原题。）
 
+DWTS（Dancing with the Stars）以“评委打分 + 观众投票”的方式决定每周淘汰，但题面数据并未直接给出真实投票数/投票比例。工程上，这使得“观众偏好（fan preference）”成为一个 \textbf{不可观测的潜变量}：它对淘汰结果有影响，却没有被直接记录。
 
+本题的难点并不在于把一个复杂模型写出来，而在于如何在信息不完全的条件下建立 \textbf{可复核、可再生、可追溯}的推断与决策链路：
+( \textbf{1}) 用统一数据口径把原始宽表加工为稳定的周度面板；
+( \textbf{2}) 用淘汰结果与评委信号约束出观众偏好强度的后验区间；
+( \textbf{3}) 在此基础上对不同投票汇总机制进行反事实对比；
+( \textbf{4}) 进一步分析影响因素并提出新机制，同时用压力测试保证结论对极端情形不脆弱。
 
-
+因此，我们将整套解题过程实现为端到端流水线：从原始DWTS数据到 \texttt{outputs/}目录下的CSV/PDF证据文件，都可以通过一次运行确定性再生（见 \texttt{run\_all.py}）。
 
 \subsection{Restatement of the Problem}
 %结合以上情况，建立数学模型解决以下问题:
 \begin{enumerate}
-	\item 
-	\item 
-	\item 
-	\item 
-	\item
+	\item \textbf{Q1（观众投票反推）:} 在缺少真实投票数据的条件下，利用每周淘汰/退赛结果与评委信号，推断周内选手的相对观众支持强度，并给出不确定性度量。
+	\item \textbf{Q2（机制对比/反事实）:} 对比Percent与Rank两类投票汇总机制（及Judge Save变体），量化其在周尺度与赛季尺度对淘汰结果的影响与分歧来源。
+	\item \textbf{Q3（因素影响）:} 将“评委线（技术表现）”与“观众线（人气强度）”分离建模，分析年龄、行业、地区、舞伴等因素在两条线上的作用方向与区间，并检验稳定性.
+	\item \textbf{Q4（新机制设计与评估）:} 提出并评估可执行的新赛制机制，在公平性（技术保护）、娱乐性（观众表达）与鲁棒性（压力测试）等多目标下给出推荐与解释.
 \end{enumerate}
 
-
-
 \subsection{Our Work}
+
+我们的工作强调“论文叙述---代码实现---产物证据”一致，具体包括：
+
+\paragraph{(1) 统一数据口径（Q0）}
+我们将题面DWTS宽表转换为两张主线数据集：
+\texttt{data/processed/dwts\_weekly\_panel.csv}（周度面板）与\texttt{data/processed/dwts\_season\_features.csv}（赛季特征），并输出审计表\texttt{outputs/tables/mcm2026c\_q0\_sanity\_*.csv}用于复核.
+
+\paragraph{(2) 观众偏好后验与诊断（Q1）}
+在每个 \texttt{season$\times$week} 上，我们对观众份额（simplex）进行后验抽样并输出区间，核心证据为：
+\texttt{outputs/predictions/mcm2026c\_q1\_fan\_vote\_posterior\_summary.csv}（后验汇总）与\texttt{outputs/tables/mcm2026c\_q1\_uncertainty\_summary.csv}（不确定性诊断），并配套生成PDF图.
+
+\paragraph{(3) 反事实机制对比（Q2）}
+在Q1输出的基础上，我们对Percent/Rank及Judge Save变体进行周级与赛季级对比，形成\texttt{outputs/tables/mcm2026c\_q2\_mechanism\_comparison.csv}与周级复核表.
+
+\paragraph{(4) 可解释影响因素与新机制评估（Q3--Q4）}
+Q3用混合效应/OLS报告可解释系数区间；Q4在多档压力强度下评估候选机制并输出多目标指标与决策故事板.
+
+\paragraph{(5) 一键再生与论文证据导出}
+主线入口为 \texttt{run\_all.py}，默认依次运行Q0--Q4并导出 \texttt{paper\_*.csv}（由 \texttt{src/mcm2026/pipelines/mcm2026c\_export\_paper\_tables.py}从主表确定性裁剪得到），保证论文表格可复现.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabularx}{\linewidth}{p{0.23\linewidth} p{0.52\linewidth} p{0.21\linewidth}}
+\toprule
+\textbf{Stage} & \textbf{Main script (repo path)} & \textbf{Primary outputs}\\
+\midrule
+Q0 & \texttt{src/mcm2026/pipelines/mcm2026c\_q0\_build\_weekly\_panel.py} & \texttt{data/processed/*.csv} \\
+Q1 & \texttt{src/mcm2026/pipelines/mcm2026c\_q1\_smc\_fan\_vote.py} & \texttt{outputs/predictions/*.csv} \\
+Q2 & \texttt{src/mcm2026/pipelines/mcm2026c\_q2\_counterfactual\_simulation.py} & \texttt{outputs/tables/mcm2026c\_q2\_*.csv} \\
+Q3 & \texttt{src/mcm2026/pipelines/mcm2026c\_q3\_mixed\_effects\_impacts.py} & \texttt{outputs/tables/mcm2026c\_q3\_*.csv} \\
+Q4 & \texttt{src/mcm2026/pipelines/mcm2026c\_q4\_design\_space\_eval.py} & \texttt{outputs/tables/mcm2026c\_q4\_*.csv} \\
+\bottomrule
+\end{tabularx}
+\caption{工程化工作流概览：从脚本到产物的最短可追溯路径（更完整映射见Sec.~7的Artifact Index）。}
+\end{table}

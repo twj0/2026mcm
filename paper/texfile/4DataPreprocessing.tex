@@ -25,6 +25,17 @@
     \item \textbf{一致性检查：}对每周在场人数、淘汰人数、分数范围进行基础审计，保证不存在明显的逻辑冲突（例如同一周多次淘汰、在场选手分数缺失占比异常等）。
 \end{enumerate}
 
+\subsection{Q0 canonicalization details (implementation-aligned)}
+Q0主线脚本\texttt{src/mcm2026/pipelines/mcm2026c\_q0\_build\_weekly\_panel.py}将官方宽表中的周-评委打分列（形如\texttt{weekX\_judgeY\_score}）解析为长表，并对每位选手在每周的评委分求和得到\texttt{judge\_score\_total}。随后在每个\texttt{season$\times$week}内计算评委分占比\texttt{judge\_score\_pct}（保证在场选手占比和约为1），并给出评委名次\texttt{judge\_rank}（1为最好）。
+
+在场状态\texttt{active\_flag}由当周\texttt{judge\_score\_total>0}判定；退出推断依赖题面\texttt{results}文本字段：
+(1) 若\texttt{results}包含\texttt{Eliminated}或\texttt{Withdrew}则提取退出类型；
+(2) 若能解析出\texttt{Week k}，则记为\texttt{elimination\_week}；
+(3) 若退出周无法解析或与最后一次出场周不一致，则回退为\texttt{last\_active\_week}得到\texttt{exit\_week\_inferred}。
+该逻辑保证后续Q1--Q4使用的退出标记只依赖历史周信息，不引入未来信息。
+
+为便于快速复核，Q0同时输出周级与选手级审计表（见\texttt{mcm2026c\_q0\_sanity\_season\_week.csv}与\texttt{mcm2026c\_q0\_sanity\_contestant.csv}），其中包含\texttt{pct\_sum\_active}（应接近1）与退出标记计数等不变量，用于在论文阶段快速排除数据口径错误。
+
 \subsection{Feature construction for downstream tasks}
 在周度面板中，我们构造了以下关键特征（在Q1--Q4反复使用）：
 \begin{enumerate}[

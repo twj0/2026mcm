@@ -2,21 +2,73 @@
 \section{Problem Analysis}
 %TOPS:这部分写差不多一页（删掉此句话）
 \subsection{Analysis of Question One}
-For question one,
 
+Q1的核心是一个 \textbf{逆问题（inverse problem）}：观众投票不可观测，但淘汰结果可观测。我们需要从“可观测结果”反推“潜在偏好强度”。
 
+\paragraph{Observed signals}
+题面提供的可观测信号主要包括：
+(1) 每周每位选手的评委总分与由此构造的 \texttt{judge\_score\_pct}/ \texttt{judge\_rank}（技术线）；
+(2) 每周淘汰/退赛标记 \texttt{eliminated\_this\_week}/ \texttt{withdrew\_this\_week}（结果线）。
+
+\paragraph{Latent target}
+我们希望得到每个 \texttt{season$\times$week} 内选手的相对观众份额（simplex）：
+\texttt{fan\_share} 以及其跨周可比较的指数形式 \texttt{fan\_vote\_index}。
+
+\paragraph{Identifiability and uncertainty}
+由于缺少真实票数，Q1 输出只能解释为 \emph{周内相对强度}。当周在场人数少、当周退出人数多、或评委排序与淘汰结果高度矛盾时，约束信息量下降，后验会更不稳定。因此我们必须同步输出不确定性诊断（如 \texttt{ess\_ratio} 与 \texttt{evidence}），并在论文中明确指出“高风险周段”。
+
+\paragraph{Engineering outputs (evidence)}
+Q1 的主证据文件为：
+\texttt{outputs/predictions/mcm2026c\_q1\_fan\_vote\_posterior\_summary.csv}（后验均值/分位数）与 \texttt{outputs/tables/mcm2026c\_q1\_uncertainty\_summary.csv}（诊断汇总），并通过图 \ref{fig:q1_fan_share_intervals} 与图 \ref{fig:q1_uncertainty_heatmap} 将“区间 + 可识别性”可视化。
 
 \subsection{Analysis of Question Two} 
-For question two,
 
+Q2 是一个 \textbf{反事实评估（counterfactual evaluation）} 问题：在固定同一赛季-周背景条件下，仅替换“合成得分”的规则，观察淘汰集合是否改变。
 
+\paragraph{Key design choice}
+Percent 与 Rank 的差异可理解为：
+(1) Percent 保留幅度信息（差距大小会影响合成得分）；
+(2) Rank 只保留相对次序（幅度被压缩）。
+在现实 DWTS 中，两者都可能被使用或混用，因此我们将其作为两条候选机制进行并行对比。
+
+\paragraph{Failure modes to control}
+Q2 的工程风险主要有两类：
+(1) \textbf{上游缺失传播：} Q1 若出现缺失或极端不确定性，会导致某些周的 \texttt{fan\_share} 不可用。我们在实现中将缺失回退到均匀分布，并在赛季级汇总中记录 \texttt{missing\_fan\_share\_week\_rate} 与 \texttt{missing\_fan\_share\_total}，避免“静默失败”。
+(2) \textbf{退出定义差异：} 退赛是否应计为“离开节目”会影响评估口径，因此该开关由 \texttt{dwts.q2.count\_withdraw\_as\_exit} 控制，并在输出表中显式记录。
+
+\paragraph{Engineering outputs (evidence)}
+Q2 提供三层证据：
+(1) 赛季级汇总 \texttt{outputs/tables/mcm2026c\_q2\_mechanism\_comparison.csv}（含 \texttt{diff\_weeks\_percent\_vs\_rank}、匹配率与缺失统计）；
+(2) 周级复核 \texttt{outputs/tables/mcm2026c\_q2\_week\_level\_comparison\_percent.csv} 与 \texttt{outputs/tables/mcm2026c\_q2\_week\_level\_comparison\_rank.csv}；
+(3) 图证：周层分歧定位（图 \ref{fig:q2_week_level_divergence_heatmap_mb}）与差异分布（图 \ref{fig:q2_mechanism_difference_distribution_mb}）。
 
 \subsection{Analysis of Question Three}
-For question three,
 
+Q3 的目标不是“预测冠军”，而是回答“哪些因素分别影响技术线与人气线”。因此我们将任务拆成两条可解释回归：
+(1) 评委线因变量：赛季级 \texttt{judge\_score\_pct\_mean}；
+(2) 观众线因变量：赛季级 \texttt{fan\_vote\_index\_mean}。
 
+\paragraph{Why season-level}
+题面提供的是周度面板，但解释变量多为赛季静态属性（年龄、行业、州/国家、舞伴）。将周度信号聚合到赛季级别可以减少噪声，并使协变量含义更稳定。
+
+\paragraph{Uncertainty propagation (engineering requirement)}
+观众线因变量来自 Q1 推断，因此必须传播不确定性。我们用 Q1 的 \texttt{p05/p95} 近似每周不确定性并聚合为赛季均值的不确定度，再进行 \texttt{n\_refits} 次重拟合，输出系数区间并给出“符号一致性/区间宽度”等稳定性诊断。
+
+\paragraph{Engineering outputs (evidence)}
+Q3 的主证据为 \texttt{outputs/tables/mcm2026c\_q3\_impact\_analysis\_coeffs.csv}，配套的可复核证据包括：
+\texttt{outputs/tables/mcm2026c\_q3\_fan\_refit\_coeff\_draws.csv} 与 \texttt{outputs/tables/mcm2026c\_q3\_fan\_refit\_stability.csv}（不确定性传播与稳定性）。图证包含系数森林图（图 \ref{fig:q3_judge_vs_fan_forest_plot}）与非线性年龄效应（图 \ref{fig:q3_age_effect_curves}）。
 
 \subsection{Analysis of Question Four}
-For question four,
 
+Q4 是一个 \textbf{机制设计与评估（mechanism design + evaluation）} 问题。我们不尝试“还原现实的真实冠军”，而是在 Q1 可识别的偏好空间内，比较不同机制在三类目标上的权衡：
+(1) \textbf{技术保护：} 冠军在整个赛季的评委百分位表现（TPI）；
+(2) \textbf{观众表达：} 观众份额分布相对均匀分布的差异（fan-vs-uniform contrast）；
+(3) \textbf{鲁棒性：} 在压力测试（多档 \texttt{outlier\_mult}）与扩展攻击策略下的失效概率。
 
+\paragraph{Why stress tests}
+现实中存在“外部动员型”极端案例（题面也暗示争议赛季）。如果只在历史常态下评估机制，结论可能对极端情形脆弱。因此我们将离群冲击作为受控压力测试：并非预测真实概率，而是用于比较“机制抗压能力”的相对强弱。
+
+\paragraph{Engineering outputs (evidence)}
+Q4 主表为 \texttt{outputs/tables/mcm2026c\_q4\_new\_system\_metrics.csv}，其中包含 \texttt{champion\_entropy}、\texttt{tpi\_season\_avg}、\texttt{fan\_vs\_uniform\_contrast} 与多种 \texttt{robust\_fail\_rate\_*} 列。为了将主表收敛为论文可读的结论，我们额外生成汇总表 \texttt{outputs/tables/mcm2026c\_q4\_sensitivity\_summary.csv} 与 \texttt{paper\_q4\_recommendation\_summary.csv}（确定性裁剪）。
+
+图证包含：多目标权衡散点图（图 \ref{fig:q4_mechanism_tradeoff_scatter}）、鲁棒性曲线（图 \ref{fig:q4_robustness_curves}）、冠军不确定性故事板（图 \ref{fig:q4_champion_uncertainty_analysis}）与机制选择指南（图 \ref{fig:q4_mechanism_recommendation}）。
