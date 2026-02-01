@@ -84,6 +84,31 @@
 \subsection{Error Analysis for Question 1}
 %最终数值结果的正确性或合理性是第一位的；对数值结果或模拟结果进行必要的检验。结果不正确、不合理、或误差大时，分析原因，对算法、计算方法、或模型进行修正、改进；
 
+针对Q1，我们将误差分解为\textbf{可识别性误差}、\textbf{数值近似误差}与\textbf{输入口径误差}三类，并在产物中给出可逐周复核的诊断量，避免只给“结论正确”的口头说明。
+
+\paragraph{诊断量与可核验定义（来自主线CSV列）}
+Q1的逐周不确定性与稳定性诊断由\path{outputs/tables/mcm2026c_q1_uncertainty_summary.csv}提供，其关键列含义为：
+\begin{enumerate}[label=(\alph*),leftmargin=2.4em]
+    \item \textbf{ESS ratio（\texttt{ess\_ratio}）：}重要性抽样权重的有效样本量\texttt{ess}除以先验抽样次数\texttt{m}的比值（\texttt{ess/m}）。其值越低，表示后验主要由少数高权重样本贡献，区间估计对随机种子与重采样更敏感。
+    \item \textbf{Evidence（\texttt{evidence}）：}周内观测（淘汰/退赛）在模型下的平均似然强度（代码实现为\texttt{mean(like)}），可理解为“约束信息量”的代理指标；当\texttt{n\_exit=0}时常出现\texttt{evidence=1.0}，这对应“该周缺少淘汰约束”，并不代表信息更强。
+\end{enumerate}
+
+Q1的周层误差诊断由\path{outputs/tables/mcm2026c_q1_error_diagnostics_week.csv}提供，其关键列含义为：
+\begin{enumerate}[label=(\alph*),leftmargin=2.4em]
+    \item \textbf{\texttt{judge\_fan\_rank\_corr}:}将\texttt{judge\_score\_pct}与\texttt{fan\_share\_mean}分别做秩变换后，计算二者的Pearson相关（等价于Spearman相关的实现方式）。该量用于识别“评委信号与观众信号冲突”的周。
+    \item \textbf{$P(\mathrm{exit}\mid\mathrm{posterior\ mean})$（\texttt{observed\_exit\_prob\_at\_posterior\_mean}）：}在将综合得分\texttt{score}按温度\texttt{tau}做softmax后（Percent机制为\texttt{score=alpha*pJ+(1-alpha)*pF}），计算\textbf{观测到的退出集合}在“无放回抽取”下被选中的概率。该量越低，说明在后验均值下模型对该周退出解释能力弱（高风险周）。
+\end{enumerate}
+
+\paragraph{误差分解：从何处会“推不准”}
+\begin{enumerate}[label=(\arabic*),leftmargin=2.4em]
+    \item \textbf{可识别性误差（信息不足/约束弱）：}当某周\texttt{n\_exit=0}或在场人数很少时，后验将更接近先验，表面上区间可能变窄，但这属于“约束缺失导致的不确定性不可辨识”。我们通过同时查看\texttt{evidence}与\texttt{n\_exit}避免误读（图\ref{fig:q1_uncertainty_heatmap}）。
+    \item \textbf{数值近似误差（抽样+重采样）：}Q1使用重要性抽样与重采样近似后验，\texttt{ess\_ratio}直接量化“有效信息量”。当\texttt{ess\_ratio}降低时，区间宽度与诊断量会对随机种子更敏感，因此我们在表\ref{tab:q1_high_uncertainty_weeks}中优先筛出\texttt{ess\_ratio}与\texttt{evidence}同时偏低的周作为“误差高风险输入”。
+    \item \textbf{输入口径误差（退出标记/在场集合）：}Q1的退出事件由Q0推断得到（\texttt{eliminated\_this\_week}与\texttt{withdrew\_this\_week}），若退出周解析错误或\texttt{active\_flag}漏标，会把错误约束输入到Q1。为此我们在Q0输出中提供两张sanity表用于核验（见Sec.~4对应的\path{outputs/tables/mcm2026c_q0_sanity_season_week.csv}与\path{outputs/tables/mcm2026c_q0_sanity_contestant.csv}）。
+\end{enumerate}
+
+\paragraph{为什么这些表足以支撑Q1结论}
+Q1在论文中承担的功能不是“给出精确投票比例”，而是给出\textbf{可排序、可对比、带不确定性标签}的观众相对强度。表\ref{tab:q1_high_uncertainty_weeks}回答“哪些周不应过度解读”，表\ref{tab:q1_error_cases}回答“模型在最难周的解释能力是否崩溃”，两者共同保证我们不会把低可识别周的单点估计当作硬结论。
+
 针对Q1，我们主要从三方面控制误差：
 \begin{enumerate}[label=(\arabic*),leftmargin=2.4em]
     \item \textbf{数值稳定性：}对后验重采样次数进行充分设置，确保区间估计收敛；并在每个赛季-周检查有效样本量与区间宽度，避免由极端权重导致的数值不稳。
@@ -117,7 +142,13 @@
 
 \subsection{Error Analysis for Question 2}
 
-针对Q2的反事实模拟，我们将误差分解为“机制差异”与“随机性差异”。前者通过固定同一赛季周度数据进行机制替换来控制；后者通过多次重复模拟并报告跨模拟的方差来度量。与此同时，Q4中引入的压力测试曲线可视为对Q2结果的外推检验：若在异常冲击增强后某机制的表现仍保持相对优势，则说明结论对数据扰动更稳健（图\ref{fig:q4_robustness_curves}）。
+针对Q2的反事实模拟，我们将误差分解为“\textbf{规则差异误差}”与“\textbf{输入不确定性误差}”。
+前者来自Percent与Rank对同一周的\texttt{fan\_share}汇总方式不同（Q2以同一周数据替换规则并重算淘汰）；后者来自Q1对\texttt{fan\_share}的后验不确定性在机制替换后被放大。我们通过两级证据来控制并暴露误差来源：
+\begin{enumerate}[label=(\arabic*),leftmargin=2.4em]
+    \item \textbf{赛季级可核验差异：}\path{outputs/tables/mcm2026c_q2_mechanism_comparison.csv}中的\texttt{diff\_weeks\_percent\_vs\_rank}直接给出每赛季“差异周数”，并同时报告匹配率与缺失统计，避免只凭视觉印象判断差异。
+    \item \textbf{周级逐点复核：}\path{outputs/tables/mcm2026c_q2_week_level_comparison_percent.csv}与\path{outputs/tables/mcm2026c_q2_week_level_comparison_rank.csv}支持将每个\texttt{season$\times$week}的预测淘汰名单与观测淘汰名单逐点比对；配套热力图（图\ref{fig:q2_week_level_divergence_heatmap}）用于快速定位“需要人工核对的高分歧周”。
+\end{enumerate}
+与此同时，Q4中引入的压力测试曲线可视为对Q2结论的外推检验：若在异常冲击增强后某机制的相对优势仍保持，则说明结论对观众异常动员扰动更稳健（图\ref{fig:q4_robustness_curves}）。
 
 此外，我们单独评估了“Judge Save”这一规则变体对结果稳定性的影响，作为对Q2误差来源（规则细节变化）的一次对照试验（图\ref{fig:q2_judge_save_impact}）。
 
@@ -134,3 +165,18 @@
     \caption{压力测试与误差外推：不同机制在异常冲击强度变化下的鲁棒性失败率与排名变化。}
     \label{fig:q4_robustness_curves}
 \end{figure}
+
+\paragraph{Q4鲁棒性失败率与多攻击策略（\texttt{robust\_fail\_rate\_*}）}
+为将“极端粉丝动员/离群票”明确成可复现的压力输入，Q4在主表\path{outputs/tables/mcm2026c_q4_new_system_metrics.csv}中输出鲁棒性失败率：
+\texttt{robust\_fail\_rate}定义为：在给定压力强度\texttt{outlier\_mult}下，\textbf{冠军与决赛周评委第一名不一致}的仿真比例；其标准误为二项比例的\texttt{sqrt(p(1-p)/n\_sims)}。
+
+同时，Q4支持一组\textbf{可配置的扩展攻击策略}（由\path{src/mcm2026/config/config.yaml}中的\texttt{dwts.q4.robustness\_attacks}控制），并在启用时在同一行追加以下列：
+\begin{enumerate}[label=(\alph*),leftmargin=2.4em]
+    \item \textbf{\texttt{robust\_fail\_rate\_fixed}:}固定攻击某位指定选手（\texttt{fixed\_contestant}）。用于复现争议型“集中投票救某人”的场景。
+    \item \textbf{\texttt{robust\_fail\_rate\_random\_bottom\_k}:}每周从评委分最低的\texttt{k}人中随机选一人作为攻击目标（\texttt{bottom\_k}）。用于模拟“观众对技术弱者的随机性同情票”。
+    \item \textbf{\texttt{robust\_fail\_rate\_add}:}对目标选手做\textbf{加法增量}（\texttt{add\_delta}随\texttt{outlier\_mult}线性放大）再归一化，模拟“基础动员规模随压力增强”的增量冲击。
+    \item \textbf{\texttt{robust\_fail\_rate\_redistribute}:}按比例从其他人抽走一部分份额转移给目标选手（\texttt{redistribute\_frac}随\texttt{outlier\_mult}放大）再归一化，模拟“资源从其他候选人被挤出”的替代效应。
+\end{enumerate}
+
+论文写作上，我们将这些策略理解为\textbf{同一压力强度下的不同攻击面}：
+若某机制在\texttt{robust\_fail\_rate}较低，但在某个\texttt{robust\_fail\_rate\_*}显著升高，则说明其对特定行为模式（固定救人/随机同情票/增量冲击/重分配）存在脆弱点；反之，若机制在多策略下均保持较低失败率，才可被称为“制度层鲁棒”。
