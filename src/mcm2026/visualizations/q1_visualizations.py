@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from matplotlib.collections import Collection
 from pathlib import Path
 from typing import Tuple, List, Optional, Dict
 import warnings
@@ -102,105 +103,112 @@ def create_q1_fan_share_intervals(
     posterior_data = posterior_data[posterior_data['mechanism'] == 'percent'].copy()
     uncertainty_data = uncertainty_data[uncertainty_data['mechanism'] == 'percent'].copy()
 
-    # Select contrasting weeks
-    # High uncertainty: low evidence, has eliminations
-    high_uncertainty = uncertainty_data[
-        (uncertainty_data['evidence'] < 0.3) & 
-        (uncertainty_data['n_exit'] > 0) &
-        (uncertainty_data['n_active'] >= 6)
-    ].iloc[0] if len(uncertainty_data[
-        (uncertainty_data['evidence'] < 0.3) & 
-        (uncertainty_data['n_exit'] > 0) &
-        (uncertainty_data['n_active'] >= 6)
-    ]) > 0 else uncertainty_data.iloc[0]
-    
-    # Low uncertainty: high evidence, has eliminations  
-    low_uncertainty = uncertainty_data[
-        (uncertainty_data['evidence'] > 0.7) & 
-        (uncertainty_data['n_exit'] > 0) &
-        (uncertainty_data['n_active'] >= 6)
-    ].iloc[0] if len(uncertainty_data[
-        (uncertainty_data['evidence'] > 0.7) & 
-        (uncertainty_data['n_exit'] > 0) &
-        (uncertainty_data['n_active'] >= 6)
-    ]) > 0 else uncertainty_data.iloc[-1]
-    
-    figsize = config.get_figure_size('single_column')
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize)
-    
-    # High uncertainty week
-    high_week_data = posterior_data[
-        (posterior_data['season'] == high_uncertainty['season']) &
-        (posterior_data['week'] == high_uncertainty['week'])
-    ].sort_values('fan_share_mean', ascending=False)
-    
-    if len(high_week_data) > 0:
-        x_pos = range(len(high_week_data))
-        ax1.errorbar(x_pos, high_week_data['fan_share_mean'],
-                    yerr=[high_week_data['fan_share_mean'] - high_week_data['fan_share_p05'],
-                          high_week_data['fan_share_p95'] - high_week_data['fan_share_mean']],
-                    fmt='o', capsize=5, capthick=2, markersize=8, color=config.get_color('warning'))
-        
-        # Highlight eliminated contestants
-        eliminated_mask = high_week_data['eliminated_this_week']
-        if eliminated_mask.any():
-            eliminated_indices = [i for i, elim in enumerate(eliminated_mask) if elim]
-            ax1.scatter([x_pos[i] for i in eliminated_indices], 
-                       [high_week_data.iloc[i]['fan_share_mean'] for i in eliminated_indices],
-                       color=config.get_color('danger'), s=100, marker='x', linewidth=3, label='Eliminated')
-        
-        ax1.set_xticks(x_pos)
-        ax1.set_xticklabels([name[:15] + '...' if len(name) > 15 else name 
-                            for name in high_week_data['celebrity_name']], rotation=45, ha='right')
-        ax1.set_ylabel('Estimated Fan Vote Share')
-        ax1.set_title(
-            f'High-Uncertainty Week (Season {high_uncertainty["season"]}, Week {high_uncertainty["week"]})\n'
-            f'Evidence={high_uncertainty["evidence"]:.3f}',
-            fontweight='bold',
+    for c in ['season', 'week', 'n_active', 'n_exit', 'evidence', 'ess_ratio']:
+        if c in uncertainty_data.columns:
+            uncertainty_data[c] = pd.to_numeric(uncertainty_data[c], errors='coerce')
+
+    cand = uncertainty_data[(uncertainty_data['n_exit'] > 0) & (uncertainty_data['n_active'] >= 6)].copy()
+    if cand.empty:
+        cand = uncertainty_data.copy()
+    cand = cand.dropna(subset=['season', 'week']).copy()
+    if cand.empty:
+        return
+
+    high_uncertainty = cand.sort_values(['evidence', 'ess_ratio'], ascending=[True, True]).iloc[0]
+    low_uncertainty = cand.sort_values(['evidence', 'ess_ratio'], ascending=[False, False]).iloc[0]
+
+    figsize = config.get_figure_size('double_column')
+    fig, axes = plt.subplots(1, 2, figsize=figsize)
+
+    def _short_name(s: str, n: int = 18) -> str:
+        ss = str(s)
+        return ss if len(ss) <= n else ss[: n - 1] + '…'
+
+    def _plot_week(ax: plt.Axes, meta: pd.Series, *, title_prefix: str, panel: str) -> Optional[Collection]:
+        season = int(meta['season']) if np.isfinite(meta.get('season', np.nan)) else None
+        week = int(meta['week']) if np.isfinite(meta.get('week', np.nan)) else None
+        if season is None or week is None:
+            ax.axis('off')
+            return None
+
+        w = posterior_data[(posterior_data['season'] == season) & (posterior_data['week'] == week)].copy()
+        for c in ['fan_share_mean', 'fan_share_p05', 'fan_share_p95', 'judge_score_pct']:
+            if c in w.columns:
+                w[c] = pd.to_numeric(w[c], errors='coerce')
+        w = w.dropna(subset=['fan_share_mean', 'fan_share_p05', 'fan_share_p95']).copy()
+        if w.empty:
+            ax.axis('off')
+            return None
+
+        w = w.sort_values('fan_share_mean', ascending=True).copy()
+        y = np.arange(len(w))
+        lo = w['fan_share_p05'].to_numpy(dtype=float)
+        hi = w['fan_share_p95'].to_numpy(dtype=float)
+        mu = w['fan_share_mean'].to_numpy(dtype=float)
+        judge = w['judge_score_pct'].to_numpy(dtype=float) if 'judge_score_pct' in w.columns else np.full_like(mu, np.nan)
+        elim = w['eliminated_this_week'].astype(bool).to_numpy() if 'eliminated_this_week' in w.columns else np.zeros(len(w), dtype=bool)
+
+        for yy, a, b in zip(y, lo, hi):
+            ax.plot([a, b], [yy, yy], color=config.get_color('muted'), alpha=0.55, linewidth=2.2, solid_capstyle='round', zorder=1)
+
+        sc = ax.scatter(
+            mu,
+            y,
+            c=judge,
+            cmap='viridis',
+            vmin=0.0,
+            vmax=1.0,
+            s=46,
+            alpha=0.92,
+            edgecolors=config.get_color('text'),
+            linewidths=0.25,
+            zorder=3,
         )
-        
-        ax1.grid(True, alpha=0.3)
-        if eliminated_mask.any():
-            ax1.legend()
-    
-    # Low uncertainty week
-    low_week_data = posterior_data[
-        (posterior_data['season'] == low_uncertainty['season']) &
-        (posterior_data['week'] == low_uncertainty['week'])
-    ].sort_values('fan_share_mean', ascending=False)
-    
-    if len(low_week_data) > 0:
-        x_pos = range(len(low_week_data))
-        ax2.errorbar(x_pos, low_week_data['fan_share_mean'],
-                    yerr=[low_week_data['fan_share_mean'] - low_week_data['fan_share_p05'],
-                          low_week_data['fan_share_p95'] - low_week_data['fan_share_mean']],
-                    fmt='o', capsize=5, capthick=2, markersize=8, color=config.get_color('primary'))
-        
-        # Highlight eliminated contestants
-        eliminated_mask = low_week_data['eliminated_this_week']
-        if eliminated_mask.any():
-            eliminated_indices = [i for i, elim in enumerate(eliminated_mask) if elim]
-            ax2.scatter([x_pos[i] for i in eliminated_indices], 
-                       [low_week_data.iloc[i]['fan_share_mean'] for i in eliminated_indices],
-                       color=config.get_color('danger'), s=100, marker='x', linewidth=3, label='Eliminated')
-        
-        ax2.set_xticks(x_pos)
-        ax2.set_xticklabels([name[:15] + '...' if len(name) > 15 else name 
-                            for name in low_week_data['celebrity_name']], rotation=45, ha='right')
-        ax2.set_ylabel('Estimated Fan Vote Share')
-        ax2.set_title(
-            f'Low-Uncertainty Week (Season {low_uncertainty["season"]}, Week {low_uncertainty["week"]})\n'
-            f'Evidence={low_uncertainty["evidence"]:.3f}',
-            fontweight='bold',
-        )
-        
-        ax2.grid(True, alpha=0.3)
-        if eliminated_mask.any():
-            ax2.legend()
-    
+
+        if np.any(elim):
+            ax.scatter(
+                mu[elim],
+                y[elim],
+                s=78,
+                marker='x',
+                c=config.get_color('danger'),
+                linewidths=2.2,
+                zorder=4,
+            )
+
+        n_active = int(w['celebrity_name'].nunique()) if 'celebrity_name' in w.columns else len(w)
+        if n_active > 0:
+            ax.axvline(1.0 / float(n_active), linestyle='--', color=config.get_color('text'), alpha=0.28, linewidth=1.2, zorder=0)
+
+        ax.set_yticks(y)
+        ax.set_yticklabels([_short_name(x) for x in w['celebrity_name'].astype(str).to_list()])
+        ax.invert_yaxis()
+
+        x_max = float(np.nanmax(hi)) if len(hi) else 0.6
+        x_max = x_max if np.isfinite(x_max) else 0.6
+        ax.set_xlim(0.0, min(1.0, max(0.55, 1.08 * x_max)))
+        ax.set_xlabel('Estimated fan vote share')
+
+        ev = float(meta.get('evidence', np.nan))
+        essr = float(meta.get('ess_ratio', np.nan))
+        title = f"{title_prefix} (S{season}, W{week})"
+        if np.isfinite(ev) and np.isfinite(essr):
+            title = title + f"\nEvidence={ev:.3f}  ESS ratio={essr:.3f}"
+        ax.set_title(title, fontweight='bold')
+        config.add_panel_label(ax, panel)
+        return sc
+
+    sc0 = _plot_week(axes[0], high_uncertainty, title_prefix='High-uncertainty week', panel='A')
+    sc1 = _plot_week(axes[1], low_uncertainty, title_prefix='Low-uncertainty week', panel='B')
+
+    axes[0].set_ylabel('Contestant')
+
+    sc = sc1 if sc1 is not None else sc0
+    if sc is not None:
+        cbar = fig.colorbar(sc, ax=axes.ravel().tolist(), fraction=0.045, pad=0.02)
+        cbar.set_label('Judge score share')
+
     plt.tight_layout()
-    
-    # Save using config
     save_figure_with_config(fig, 'q1_fan_share_intervals', output_dirs, config)
 
 
@@ -221,92 +229,111 @@ def create_q1_judge_vs_fan_scatter(
     """
     posterior_data = posterior_data[posterior_data['mechanism'] == 'percent'].copy()
 
-    # Merge data
-    merged_data = pd.merge(
-        posterior_data[['season', 'week', 'celebrity_name', 'fan_share_mean', 'eliminated_this_week']],
-        weekly_panel[['season', 'week', 'celebrity_name', 'judge_score_pct']],
-        on=['season', 'week', 'celebrity_name'],
-        how='inner'
-    )
-    
+    cols = ['season', 'week', 'celebrity_name', 'fan_share_mean', 'fan_share_p05', 'fan_share_p95', 'eliminated_this_week']
+    if 'judge_score_pct' in posterior_data.columns:
+        cols.append('judge_score_pct')
+    d0 = posterior_data[cols].copy()
+
+    if 'judge_score_pct' not in d0.columns:
+        d0 = pd.merge(
+            d0,
+            weekly_panel[['season', 'week', 'celebrity_name', 'judge_score_pct']],
+            on=['season', 'week', 'celebrity_name'],
+            how='inner',
+        )
+
+    for c in ['fan_share_mean', 'fan_share_p05', 'fan_share_p95', 'judge_score_pct']:
+        if c in d0.columns:
+            d0[c] = pd.to_numeric(d0[c], errors='coerce')
+    d0 = d0.dropna(subset=['fan_share_mean', 'fan_share_p05', 'fan_share_p95', 'judge_score_pct']).copy()
+    if d0.empty:
+        return
+
+    d0['fan_width'] = (d0['fan_share_p95'] - d0['fan_share_p05']).clip(lower=0)
+    d0['delta'] = d0['judge_score_pct'] - d0['fan_share_mean']
+    d0['judge_pct'] = d0.groupby(['season', 'week'])['judge_score_pct'].rank(pct=True)
+    d0['fan_pct'] = d0.groupby(['season', 'week'])['fan_share_mean'].rank(pct=True)
+
+    w = d0['fan_width'].to_numpy(dtype=float)
+    w_lo = float(np.nanpercentile(w, 5)) if len(w) else 0.0
+    w_hi = float(np.nanpercentile(w, 95)) if len(w) else 1.0
+    denom = (w_hi - w_lo) if np.isfinite(w_hi - w_lo) and (w_hi - w_lo) > 1e-12 else 1.0
+    w_norm = np.clip((w - w_lo) / denom, 0.0, 1.0)
+    size = 34.0 + 260.0 * (0.15 + w_norm)
+    alpha = 0.25 + 0.65 * (1.0 - w_norm)
+
+    dv = d0['delta'].to_numpy(dtype=float)
+    vmax = float(np.nanquantile(np.abs(dv), 0.98)) if len(dv) else 0.2
+    vmax = vmax if np.isfinite(vmax) and vmax > 0 else 0.2
+
+    cmap = config.get_cmap('corr')
+    norm = plt.Normalize(vmin=-vmax, vmax=vmax)
+    rgba = cmap(norm(dv))
+    rgba[:, 3] = alpha
+
     figsize = config.get_figure_size('single_column')
     fig, ax = plt.subplots(figsize=figsize)
-    
-    # Create scatter plot
-    eliminated = merged_data[merged_data['eliminated_this_week']]
-    not_eliminated = merged_data[~merged_data['eliminated_this_week']]
-    
-    # Plot non-eliminated contestants
+
+    elim = d0['eliminated_this_week'].astype(bool).to_numpy() if 'eliminated_this_week' in d0.columns else np.zeros(len(d0), dtype=bool)
+    keep = ~elim
+
     ax.scatter(
-        not_eliminated['judge_score_pct'],
-        not_eliminated['fan_share_mean'],
-        alpha=0.65,
-        s=50,
-        c=config.get_color('primary'),
-        edgecolors='#111827',
+        d0.loc[keep, 'judge_score_pct'].to_numpy(dtype=float),
+        d0.loc[keep, 'fan_share_mean'].to_numpy(dtype=float),
+        s=size[keep],
+        c=rgba[keep],
+        edgecolors=config.get_color('text'),
         linewidths=0.25,
-        label='Not eliminated',
+        zorder=2,
     )
-    
-    # Plot eliminated contestants
-    ax.scatter(
-        eliminated['judge_score_pct'],
-        eliminated['fan_share_mean'],
-        alpha=0.90,
-        s=90,
-        c=config.get_color('danger'),
-        marker='x',
-        linewidth=2.5,
-        label='Eliminated',
-    )
-    
-    # Add diagonal reference line
-    ax.plot([0, 1], [0, 1], 'k--', alpha=0.3, label='Judge = Fan (reference)')
-    
-    # Identify and annotate extreme cases
-    # High judge, low fan (technical but unpopular)
-    high_judge_low_fan = merged_data[
-        (merged_data['judge_score_pct'] > 0.7) & 
-        (merged_data['fan_share_mean'] < 0.3)
-    ]
-    
-    # Low judge, high fan (popular but not technical)
-    low_judge_high_fan = merged_data[
-        (merged_data['judge_score_pct'] < 0.3) & 
-        (merged_data['fan_share_mean'] > 0.7)
-    ]
-    
-    # Annotate a few extreme cases
-    for _, row in high_judge_low_fan.head(3).iterrows():
-        ax.annotate(
-            f"{row['celebrity_name'][:10]}...",
-            (row['judge_score_pct'], row['fan_share_mean']),
-            xytext=(5, 5),
-            textcoords='offset points',
-            fontsize=9,
-            bbox=config.callout_bbox(kind='note'),
+
+    if np.any(elim):
+        ax.scatter(
+            d0.loc[elim, 'judge_score_pct'].to_numpy(dtype=float),
+            d0.loc[elim, 'fan_share_mean'].to_numpy(dtype=float),
+            s=np.maximum(90.0, size[elim]),
+            c=config.get_color('danger'),
+            marker='x',
+            linewidths=2.2,
+            zorder=3,
         )
-    
-    for _, row in low_judge_high_fan.head(3).iterrows():
-        ax.annotate(
-            f"{row['celebrity_name'][:10]}...",
-            (row['judge_score_pct'], row['fan_share_mean']),
-            xytext=(5, 5),
-            textcoords='offset points',
-            fontsize=9,
-            bbox=config.callout_bbox(kind='note'),
-        )
-    
-    ax.set_xlabel('Judge Score Share (Technical Line)')
-    ax.set_ylabel('Estimated Fan Vote Share (Popularity Line)')
-    ax.set_title('Technical Skill vs Popularity: Judge vs Fan Preferences', fontweight='bold')
-    
-    ax.legend()
+
+    ax.plot([0, 1], [0, 1], linestyle='--', color=config.get_color('muted'), alpha=0.35, linewidth=1.2, zorder=1)
+
+    extreme_a = d0[(d0['judge_pct'] >= 0.80) & (d0['fan_pct'] <= 0.20)].copy()
+    extreme_b = d0[(d0['judge_pct'] <= 0.20) & (d0['fan_pct'] >= 0.80)].copy()
+    extreme = pd.concat([extreme_a, extreme_b], ignore_index=True)
+    if not extreme.empty:
+        extreme['abs_delta'] = np.abs(pd.to_numeric(extreme['delta'], errors='coerce'))
+        extreme = extreme.sort_values('abs_delta', ascending=False).head(6)
+        for _, row in extreme.iterrows():
+            name = str(row['celebrity_name'])
+            ax.annotate(
+                name if len(name) <= 10 else name[:9] + '…',
+                (float(row['judge_score_pct']), float(row['fan_share_mean'])),
+                xytext=(6, 6),
+                textcoords='offset points',
+                fontsize=8.8,
+                bbox=config.callout_bbox(kind='note'),
+            )
+
+    rho = float(np.corrcoef(d0['judge_score_pct'].to_numpy(dtype=float), d0['fan_share_mean'].to_numpy(dtype=float))[0, 1]) if len(d0) >= 2 else float('nan')
+    if np.isfinite(rho):
+        config.add_callout(ax, f"Corr(judge, fan) = {rho:.2f}\nSize/alpha = posterior interval width", loc='upper left', kind='note')
+
+    ax.set_xlim(0.0, 1.0)
+    ax.set_ylim(0.0, 1.0)
+    ax.set_xlabel('Judge score share (technical line)')
+    ax.set_ylabel('Estimated fan vote share (popularity line)')
+    ax.set_title('Judge vs fan share (uncertainty-aware)', fontweight='bold')
     ax.grid(True, alpha=0.3)
-    
+
+    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, fraction=0.05, pad=0.02)
+    cbar.set_label('Judge − Fan (share difference)')
+
     plt.tight_layout()
-    
-    # Save using config
     save_figure_with_config(fig, 'q1_judge_vs_fan_scatter', output_dirs, config)
 
 
