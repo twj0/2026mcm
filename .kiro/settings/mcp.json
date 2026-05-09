@@ -19,16 +19,6 @@
         "autoApprove": ["interactive_feedback"]
       },
       // 经典ace，但是AI很少使用ace检索上下文的
-      "ace-tool": {
-      "args": [
-        "ace-tool",
-        "--base-url",
-        "https://acemcp.heroman.wtf/relay/",
-        "--token",
-        "ace_6ee0ae2e64b8680ee422f4244c4924c6e601faef"
-      ],
-      "command": "npx"
-    },
     "acemcp": {
       "args": [
         "acemcp",
